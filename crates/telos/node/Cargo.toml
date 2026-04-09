@@ -1,0 +1,70 @@
+[package]
+name = "reth-node-telos"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# reth
+reth-chainspec.workspace = true
+reth-ethereum-engine-primitives.workspace = true
+reth-ethereum-payload-builder.workspace = true
+reth-ethereum-consensus.workspace = true
+reth-ethereum-primitives.workspace = true
+reth-primitives-traits = { workspace = true, features = ["secp256k1", "rayon"] }
+reth-node-builder.workspace = true
+reth-node-api.workspace = true
+reth-node-ethereum.workspace = true
+reth-tracing.workspace = true
+reth-provider.workspace = true
+reth-transaction-pool.workspace = true
+reth-network.workspace = true
+reth-evm.workspace = true
+reth-evm-ethereum = { workspace = true, features = ["std"] }
+reth-rpc.workspace = true
+reth-rpc-api.workspace = true
+reth-rpc-eth-api.workspace = true
+reth-rpc-builder.workspace = true
+reth-rpc-server-types.workspace = true
+reth-rpc-eth-types.workspace = true
+reth-engine-primitives = { workspace = true, features = ["std"] }
+reth-engine-local.workspace = true
+reth-payload-primitives.workspace = true
+reth-revm = { workspace = true, features = ["std"] }
+
+# telos
+reth-telos-rpc.workspace = true
+reth-telos-rpc-engine-api.workspace = true
+reth-telos-primitives-traits.workspace = true
+
+# alloy
+alloy-eips.workspace = true
+alloy-network.workspace = true
+alloy-rpc-types-eth.workspace = true
+alloy-rpc-types-engine.workspace = true
+alloy-primitives.workspace = true
+
+# async
+tokio.workspace = true
+
+# revm
+revm = { workspace = true, features = ["secp256k1", "blst", "c-kzg", "memory_limit"] }
+
+# cli
+reth-cli.workspace = true
+reth-ethereum-cli.workspace = true
+
+# misc
+clap = { workspace = true, features = ["derive", "env"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+eyre.workspace = true
+tracing.workspace = true
+once_cell = "1"
+alloy-genesis.workspace = true
