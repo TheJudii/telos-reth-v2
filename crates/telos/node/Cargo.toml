@@ -36,6 +36,7 @@ reth-rpc-eth-types.workspace = true
 reth-engine-primitives = { workspace = true, features = ["std"] }
 reth-engine-local.workspace = true
 reth-payload-primitives.workspace = true
+reth-payload-validator.workspace = true
 reth-revm = { workspace = true, features = ["std"] }
 
 # telos
@@ -48,6 +49,7 @@ alloy-eips.workspace = true
 alloy-network.workspace = true
 alloy-rpc-types-eth.workspace = true
 alloy-rpc-types-engine.workspace = true
+alloy-consensus.workspace = true
 alloy-primitives.workspace = true
 
 # async

@@ -17,6 +17,7 @@ use revm as _;
 
 pub mod args;
 pub mod chainspec;
+pub mod engine;
 pub mod node;
 
 pub use args::TelosArgs;

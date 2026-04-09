@@ -5,6 +5,7 @@
 //! with Telos-specific extensions.
 
 use crate::args::TelosArgs;
+use crate::engine::TelosEngineValidatorBuilder;
 use alloy_rpc_types_engine::ExecutionData;
 use reth_chainspec::{ChainSpec, EthChainSpec, EthereumHardforks, Hardforks};
 use reth_engine_local::LocalPayloadAttributesBuilder;
@@ -160,6 +161,29 @@ where
     }
 }
 
+impl<N> Default for TelosAddOns<N, EthereumEthApiBuilder, TelosEngineValidatorBuilder>
+where
+    N: FullNodeComponents<
+        Types: NodeTypes<
+            ChainSpec: reth_chainspec::Hardforks + EthereumHardforks + Clone + 'static,
+            Payload: EngineTypes<ExecutionData = ExecutionData>
+                         + PayloadTypes<PayloadAttributes = EthPayloadAttributes>,
+            Primitives = EthPrimitives,
+        >,
+    >,
+    EthereumEthApiBuilder: EthApiBuilder<N>,
+{
+    fn default() -> Self {
+        Self::new(RpcAddOns::new(
+            EthereumEthApiBuilder::default(),
+            TelosEngineValidatorBuilder::default(),
+            BasicEngineApiBuilder::default(),
+            BasicEngineValidatorBuilder::default(),
+            Default::default(),
+        ))
+    }
+}
+
 impl<N, EthB, PVB, EB, EVB, RpcMiddleware> NodeAddOns<N>
     for TelosAddOns<N, EthB, PVB, EB, EVB, RpcMiddleware>
 where
@@ -281,7 +305,7 @@ where
     >;
 
     type AddOns =
-        TelosAddOns<NodeAdapter<N>, EthereumEthApiBuilder, EthereumEngineValidatorBuilder>;
+        TelosAddOns<NodeAdapter<N>, EthereumEthApiBuilder, TelosEngineValidatorBuilder>;
 
     fn components_builder(&self) -> Self::ComponentsBuilder {
         Self::components()
