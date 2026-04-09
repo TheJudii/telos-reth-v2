@@ -1,0 +1,56 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+Subject: [PATCH] fix(chainspec): restore canonical extraData in telos-testnet
+ genesis
+
+The bundled `telos-testnet` chain spec was missing the 32-byte
+`extraData` value from the real Telos EVM testnet genesis block,
+leaving it as an empty `0x`. Every other header field in the v2
+genesis matched the canonical block 0 exactly - timestamp, gasLimit,
+stateRoot (empty trie), transactionsRoot, receiptsRoot, difficulty,
+mixHash, nonce - but an empty extraData produces a different RLP and
+therefore a different block hash.
+
+Canonical block 0 on https://rpc.testnet.telos.net:
+
+    hash       0xb25034033c9ca7a40e879ddcc29cf69071a22df06688b5fe8cc2d68b4e0528f9
+    stateRoot  0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421
+    timestamp  0x5d55db93
+    extraData  0x000000397128c497668c241b27d1521c764156cea50bcac87892fc8916e23b24
+    gasLimit   0x7fffffff
+    size       0x21d
+
+Pre-patch v2 telos-reth was computing:
+
+    hash       0x53e7ff3c9de5b45ce2efab06c942f8ce7dbcf7c4d2a080b1a3486de6ac641a56
+    extraData  0x
+    size       0x1fd
+
+The 32-byte extraData delta fully accounts for the 32-byte size
+delta, and is the only non-matching header field - which means
+restoring extraData is sufficient to make block 0 hash-match the
+live network. This is required before the telos-consensus-client
+can feed blocks into the v2 node over the Engine API, because the
+CL's `prev_hash` checkpoint for `evm_start_block = 1` references the
+canonical genesis hash.
+
+The v1 telos-reth (1.11.3) chain spec uses the same extraData, so
+this patch simply restores parity with v1 and with public mainnet
+consensus.
+
+Signed-off-by: Claude <noreply@anthropic.com>
+---
+ crates/telos/node/res/telos-testnet.json | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/crates/telos/node/res/telos-testnet.json b/crates/telos/node/res/telos-testnet.json
+--- a/crates/telos/node/res/telos-testnet.json
++++ b/crates/telos/node/res/telos-testnet.json
+@@ -14,7 +14,7 @@
+   },
+   "nonce": "0x0",
+   "timestamp": "0x5d55db93",
+-  "extraData": "0x",
++  "extraData": "0x000000397128c497668c241b27d1521c764156cea50bcac87892fc8916e23b24",
+   "gasLimit": "0x7fffffff",
+   "difficulty": "0x0",
+   "mixHash": "0x0000000000000000000000000000000000000000000000000000000000000000",

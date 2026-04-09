@@ -1,0 +1,36 @@
+[Unit]
+Description=telos-reth v2 (side-by-side testnet validation node)
+Documentation=https://github.com/TheJudii/telos-reth-v2
+After=network-online.target
+Wants=network-online.target
+# Intentionally not requiring nodeos: nodeos is managed out-of-band and
+# running on the same host. Reth will tolerate nodeos being briefly offline.
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/telos-reth-v2
+Restart=on-failure
+RestartSec=10
+User=root
+Group=root
+
+# Open file limit - reth opens many mdbx + network fds.
+LimitNOFILE=262144
+
+# Memory guardrails. This host also runs nodeos (multi-GB), elasticsearch,
+# and build jobs, so we cap v2 generously but not unbounded.
+MemoryHigh=80G
+MemoryMax=96G
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=telos-reth-v2
+Environment=RUST_LOG=info,reth=info
+
+# Let shutdowns be graceful - mdbx flushes can take a moment.
+TimeoutStopSec=120
+KillSignal=SIGINT
+
+[Install]
+WantedBy=multi-user.target

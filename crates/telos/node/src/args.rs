@@ -1,9 +1,6 @@
 //! clap [Args](clap::Args) for Telos configuration
 
-use crate::{
-    DEFAULT_MAX_EXECUTE_BLOCK_BATCH_SIZE, DEFAULT_MEMORY_BLOCK_BUFFER_TARGET,
-    DEFAULT_PERSISTENCE_THRESHOLD,
-};
+use crate::DEFAULT_MAX_EXECUTE_BLOCK_BATCH_SIZE;
 use reth_telos_rpc::telos_client::TelosClientArgs;
 
 /// Telos CLI arguments
@@ -29,14 +26,6 @@ pub struct TelosArgs {
     /// Seconds to cache gas price
     #[arg(long = "telos.gas_cache_seconds")]
     pub gas_cache_seconds: Option<u32>,
-
-    /// Configure persistence threshold for engine.
-    #[arg(long = "engine.persistence-threshold", default_value_t = DEFAULT_PERSISTENCE_THRESHOLD)]
-    pub persistence_threshold: u64,
-
-    /// Configure the target number of blocks to keep in memory.
-    #[arg(long = "engine.memory-block-buffer-target", default_value_t = DEFAULT_MEMORY_BLOCK_BUFFER_TARGET)]
-    pub memory_block_buffer_target: u64,
 
     /// Maximum number of blocks to execute sequentially in a batch.
     #[arg(long = "engine.max-execute-block-batch-size", default_value_t = DEFAULT_MAX_EXECUTE_BLOCK_BATCH_SIZE)]
