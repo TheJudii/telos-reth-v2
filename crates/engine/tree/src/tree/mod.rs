@@ -864,6 +864,16 @@ where
             return Ok(None)
         };
 
+        // Telos: when `trust_consensus` is enabled, the CL is the source of truth for
+        // block linkage and blocks may arrive with parent hashes that do not connect
+        // back to our local canonical head (which typically stays at genesis because
+        // we never persisted the long prefix of prior EVM history). Treat every
+        // accepted new head as a direct single-block commit extension so that
+        // `make_canonical` can advance the canonical head one block at a time.
+        if reth_telos_primitives_traits::trust_consensus() {
+            return Ok(Some(NewCanonicalChain::Commit { new: vec![new_head_block.clone()] }))
+        }
+
         let new_head_number = new_head_block.recovered_block().number();
         let mut current_canonical_number = self.state.tree_state.current_canonical_head.number;
 
@@ -2572,6 +2582,14 @@ where
     /// This method tries to detect whether on-disk and in-memory states have diverged. It might
     /// happen if a reorg is happening while we are persisting a block.
     fn find_disk_reorg(&self) -> ProviderResult<Option<u64>> {
+        // Under trust_consensus, the CL is the source of truth for the canonical chain.
+        // We may be starting mid-chain where the historical parent hashes are not in our
+        // Headers table, which makes the ancestor walk below fail with BlockHashNotFound.
+        // Disk reorg detection is meaningless in that mode, so just skip it.
+        if reth_telos_primitives_traits::trust_consensus() {
+            return Ok(None);
+        }
+
         let mut canonical = self.state.tree_state.current_canonical_head;
         let mut persisted = self.persistence_state.last_persisted_block;
 
