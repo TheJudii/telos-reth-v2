@@ -4,7 +4,7 @@ use crate::DEFAULT_MAX_EXECUTE_BLOCK_BATCH_SIZE;
 use reth_telos_rpc::telos_client::TelosClientArgs;
 
 /// Telos CLI arguments
-#[derive(Debug, Clone, Default, PartialEq, Eq, clap::Args)]
+#[derive(Debug, Clone, PartialEq, Eq, clap::Args)]
 #[clap(next_help_heading = "Telos")]
 pub struct TelosArgs {
     /// TelosZero endpoint to use for API calls (send_transaction, get gas price from table)
@@ -34,6 +34,27 @@ pub struct TelosArgs {
     /// Block delta between native and EVM
     #[arg(long = "telos.block_delta")]
     pub block_delta: Option<u32>,
+
+    /// Trust consensus client execution results and skip state root verification.
+    /// Required for Telos testnet/mainnet where real state lives in nodeos and EVM
+    /// header root fields are empty-trie placeholders. Default: true.
+    #[arg(long = "telos.trust_consensus", default_value_t = true, action = clap::ArgAction::Set)]
+    pub trust_consensus: bool,
+}
+
+impl Default for TelosArgs {
+    fn default() -> Self {
+        Self {
+            telos_endpoint: None,
+            signer_account: None,
+            signer_permission: None,
+            signer_key: None,
+            gas_cache_seconds: None,
+            max_execute_block_batch_size: DEFAULT_MAX_EXECUTE_BLOCK_BATCH_SIZE,
+            block_delta: None,
+            trust_consensus: true,
+        }
+    }
 }
 
 impl From<TelosArgs> for TelosClientArgs {

@@ -440,16 +440,30 @@ fn validate_state_root<H: BlockHeader + Sealable + Debug>(
     target_block: BlockNumber,
 ) -> Result<(), StageError> {
     if got == expected.state_root() {
-        Ok(())
-    } else {
-        error!(target: "sync::stages::merkle", ?target_block, ?got, ?expected, "Failed to verify block state root! {INVALID_STATE_ROOT_ERROR_MESSAGE}");
-        Err(StageError::Block {
-            error: BlockErrorKind::Validation(ConsensusError::BodyStateRootDiff(
-                GotExpected { got, expected: expected.state_root() }.into(),
-            )),
-            block: Box::new(expected.block_with_parent()),
-        })
+        return Ok(())
     }
+
+    if reth_telos_primitives_traits::trust_consensus() {
+        // Telos: skip state root validation in the pipeline.
+        // Real state lives in nodeos; EVM headers use empty-trie placeholders.
+        // Block validity is guaranteed by nodeos consensus.
+        tracing::warn!(
+            target: "sync::stages::merkle",
+            ?target_block,
+            ?got,
+            block_state_root = ?expected.state_root(),
+            "Telos: ignoring state root mismatch in pipeline"
+        );
+        return Ok(())
+    }
+
+    error!(target: "sync::stages::merkle", ?target_block, ?got, ?expected, "Failed to verify block state root! {INVALID_STATE_ROOT_ERROR_MESSAGE}");
+    Err(StageError::Block {
+        error: BlockErrorKind::Validation(ConsensusError::BodyStateRootDiff(
+            GotExpected { got, expected: expected.state_root() }.into(),
+        )),
+        block: Box::new(expected.block_with_parent()),
+    })
 }
 
 #[cfg(test)]

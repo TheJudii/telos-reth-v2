@@ -17,6 +17,7 @@ reth-consensus.workspace = true
 
 # ethereum
 reth-primitives-traits.workspace = true
+reth-telos-primitives-traits.workspace = true
 alloy-consensus.workspace = true
 alloy-eips.workspace = true
 alloy-primitives.workspace = true
