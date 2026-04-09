@@ -25,6 +25,15 @@ fn main() {
         Cli::<TelosChainSpecParser, TelosArgs>::parse().run(async move |builder, telos_args| {
             info!(target: "reth::cli", "Launching Telos node");
 
+            // Set the global trust_consensus flag from CLI args.
+            // When true, reth skips state-root / receipt-root / gas verification
+            // and trusts the consensus client (telos-consensus-client) to drive
+            // execution. Required for Telos where real state lives in nodeos.
+            reth_telos_primitives_traits::set_trust_consensus(telos_args.trust_consensus);
+            if telos_args.trust_consensus {
+                info!(target: "reth::cli", "Telos: trust_consensus enabled - trusting nodeos consensus for execution results");
+            }
+
             let telos_endpoint = telos_args.telos_endpoint.clone();
             let telos_client_args: reth_telos_rpc::telos_client::TelosClientArgs =
                 telos_args.clone().into();

@@ -16,6 +16,7 @@ reth-execution-types.workspace = true
 reth-chainspec.workspace = true
 reth-consensus-common.workspace = true
 reth-primitives-traits.workspace = true
+reth-telos-primitives-traits.workspace = true
 reth-consensus.workspace = true
 
 # alloy

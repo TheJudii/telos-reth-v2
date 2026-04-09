@@ -57,7 +57,8 @@ use reth_trie_sparse::debug_recorder::TrieDebugRecorder;
 
 use crate::tree::payload_processor::receipt_root_task::{IndexedReceipt, ReceiptRootTaskHandle};
 use reth_chain_state::{
-    CanonicalInMemoryState, DeferredTrieData, ExecutedBlock, ExecutionTimingStats, LazyOverlay,
+    CanonicalInMemoryState, ComputedTrieData, DeferredTrieData, ExecutedBlock, ExecutionTimingStats,
+    LazyOverlay,
 };
 use reth_consensus::{ConsensusError, FullConsensus, ReceiptRootBloom};
 use reth_engine_primitives::{
@@ -498,7 +499,12 @@ where
         };
 
         // Plan the strategy used for state root computation.
-        let strategy = self.plan_state_root_computation();
+        // Telos: when trust_consensus is true, always use Synchronous (which skips to our bypass).
+        let strategy = if reth_telos_primitives_traits::trust_consensus() {
+            StateRootStrategy::Synchronous
+        } else {
+            self.plan_state_root_computation()
+        };
 
         debug!(
             target: "engine::tree::payload_validator",
@@ -762,16 +768,35 @@ where
                 self.metrics.block_validation.state_root_parallel_fallback_total.increment(1);
             }
 
-            let (root, updates) = ensure_ok_post_block!(
-                Self::compute_state_root_serial(overlay_factory.clone(), &hashed_state),
-                block
-            );
+            if reth_telos_primitives_traits::trust_consensus() {
+                // Telos: skip serial state root computation entirely.
+                // Real state lives in nodeos; use the header-declared state root as a
+                // placeholder so the mismatch check below (also bypassed) is a no-op.
+                let root = block.header().state_root();
+                let updates = TrieUpdates::default();
+                if state_root_task_failed {
+                    tracing::warn!(
+                        target: "engine::tree::payload_validator",
+                        "Telos: skipping serial state root computation"
+                    );
+                    self.metrics
+                        .block_validation
+                        .state_root_task_fallback_success_total
+                        .increment(1);
+                }
+                (root, Arc::new(updates), root_time.elapsed())
+            } else {
+                let (root, updates) = ensure_ok_post_block!(
+                    Self::compute_state_root_serial(overlay_factory.clone(), &hashed_state),
+                    block
+                );
 
-            if state_root_task_failed {
-                self.metrics.block_validation.state_root_task_fallback_success_total.increment(1);
+                if state_root_task_failed {
+                    self.metrics.block_validation.state_root_task_fallback_success_total.increment(1);
+                }
+
+                (root, Arc::new(updates), root_time.elapsed())
             }
-
-            (root, Arc::new(updates), root_time.elapsed())
         };
 
         self.metrics.block_validation.record_state_root(&trie_output, root_elapsed.as_secs_f64());
@@ -781,26 +806,37 @@ where
 
         // ensure state root matches
         if state_root != block.header().state_root() {
-            #[cfg(feature = "trie-debug")]
-            Self::write_trie_debug_recorders(block.header().number(), &trie_debug_recorders);
+            if reth_telos_primitives_traits::trust_consensus() {
+                // Telos: state root mismatch is expected — nodeos consensus guarantees validity.
+                debug!(
+                    target: "engine::tree::payload_validator",
+                    ?state_root,
+                    block_state_root = ?block.header().state_root(),
+                    block_number = block.header().number(),
+                    "Telos: state root mismatch - computed root differs from consensus, trusting consensus"
+                );
+            } else {
+                #[cfg(feature = "trie-debug")]
+                Self::write_trie_debug_recorders(block.header().number(), &trie_debug_recorders);
 
-            // call post-block hook
-            self.on_invalid_block(
-                &parent_block,
-                &block,
-                &output,
-                Some((&trie_output, state_root)),
-                ctx.state_mut(),
-            );
-            let block_state_root = block.header().state_root();
-            return Err(InsertBlockError::new(
-                block.into_sealed_block(),
-                ConsensusError::BodyStateRootDiff(
-                    GotExpected { got: state_root, expected: block_state_root }.into(),
+                // call post-block hook
+                self.on_invalid_block(
+                    &parent_block,
+                    &block,
+                    &output,
+                    Some((&trie_output, state_root)),
+                    ctx.state_mut(),
+                );
+                let block_state_root = block.header().state_root();
+                return Err(InsertBlockError::new(
+                    block.into_sealed_block(),
+                    ConsensusError::BodyStateRootDiff(
+                        GotExpected { got: state_root, expected: block_state_root }.into(),
+                    )
+                    .into(),
                 )
-                .into(),
-            )
-            .into())
+                .into())
+            }
         }
 
         let timing_stats = state_provider_stats.map(|stats| {
@@ -846,10 +882,30 @@ where
         let header = state.tree_state.sealed_header_by_hash(&hash);
 
         if header.is_some() {
-            Ok(header)
-        } else {
-            self.provider.sealed_header_by_hash(hash)
+            return Ok(header)
         }
+
+        let db_header = self.provider.sealed_header_by_hash(hash)?;
+        if db_header.is_some() {
+            return Ok(db_header)
+        }
+
+        // Telos: when trust_consensus is enabled and the parent header isn't in the
+        // tree or on disk, fall back to the genesis header. The consensus client
+        // provides correct execution results, so the parent header is only needed for
+        // validation checks we skip anyway.
+        if reth_telos_primitives_traits::trust_consensus() {
+            if let Ok(Some(genesis)) = self.provider.sealed_header(0) {
+                debug!(
+                    target: "engine::tree::payload_validator",
+                    %hash,
+                    "Telos: parent header not found, using genesis header"
+                );
+                return Ok(Some(genesis))
+            }
+        }
+
+        Ok(None)
     }
 
     /// Validate if block is correct and satisfies all the consensus rules that concern the header
@@ -1053,7 +1109,12 @@ where
             trace!(target: "engine::tree", "Executing transaction");
 
             let tx_start = Instant::now();
-            executor.execute_transaction(tx)?;
+            if reth_telos_primitives_traits::trust_consensus() {
+                // Telos: skip EVM execution entirely during historical sync.
+                // No account state available; nodeos already validated all transactions.
+            } else {
+                executor.execute_transaction(tx)?;
+            }
             self.metrics.record_transaction_execution(tx_start.elapsed());
 
             // advance the shared counter so prewarm workers skip already-executed txs
@@ -1517,6 +1578,38 @@ where
             return Ok(Some(StateProviderBuilder::new(self.provider.clone(), hash, None)))
         }
 
+        // Telos: Fallback when parent hash isn't indexed in DB.
+        // Covers (1) init-state dummy blocks with B256::ZERO hashes and
+        // (2) blocks persisted by the engine tree that don't get hash-indexed.
+        {
+            let best = self.provider.best_block_number().unwrap_or(0);
+            if best > 0 {
+                debug!(
+                    target: "engine::tree::payload_validator",
+                    %hash,
+                    %best,
+                    "Telos: parent hash not found, using best persisted block state"
+                );
+                if let Some(header) = self.provider.sealed_header(best).ok().flatten() {
+                    return Ok(Some(StateProviderBuilder::new(
+                        self.provider.clone(),
+                        header.hash(),
+                        None,
+                    )))
+                }
+            } else if reth_telos_primitives_traits::trust_consensus() {
+                // Fresh start with trust_consensus: use genesis state.
+                // The consensus client provides execution results, so we don't need
+                // accurate parent state - just a valid state provider to attach blocks to.
+                debug!(
+                    target: "engine::tree::payload_validator",
+                    %hash,
+                    "Telos: trust_consensus fresh start, using genesis state"
+                );
+                return Ok(Some(StateProviderBuilder::new(self.provider.clone(), hash, None)))
+            }
+        }
+
         debug!(target: "engine::tree::payload_validator", %hash, "no canonical state found for block");
         Ok(None)
     }
@@ -1641,8 +1734,16 @@ where
             Ok(state) => Arc::new(state),
             Err(handle) => Arc::new(handle.get().clone()),
         };
-        let deferred_trie_data =
-            DeferredTrieData::pending(hashed_state, trie_output, anchor_hash, ancestors);
+        // Telos: when trust_consensus is enabled and trie_output is empty (we bypassed
+        // state-root computation), skip the deferred trie task entirely. Otherwise the
+        // background task would walk an empty state and waste CPU while blocking nothing.
+        let deferred_trie_data = if reth_telos_primitives_traits::trust_consensus()
+            && trie_output.is_empty()
+        {
+            DeferredTrieData::ready(ComputedTrieData::default())
+        } else {
+            DeferredTrieData::pending(hashed_state, trie_output, anchor_hash, ancestors)
+        };
         let deferred_handle_task = deferred_trie_data.clone();
         let block_validation_metrics = self.metrics.block_validation.clone();
 
