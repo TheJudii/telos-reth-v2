@@ -1,0 +1,190 @@
+# Publishes Docker images.
+#
+# Triggers:
+#   - Push tag v*: builds release (RC or latest)
+#   - Schedule: builds nightly + profiling
+#   - Manual: builds git-sha or nightly
+
+name: docker
+
+on:
+  push:
+    tags:
+      - v*
+  schedule:
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: "Build type"
+        required: true
+        type: choice
+        options:
+          - git-sha
+          - nightly
+        default: git-sha
+      dry_run:
+        description: "Skip pushing images (dry run)"
+        required: false
+        type: boolean
+        default: false
+      pgo:
+        description: "Enable PGO profiling"
+        required: false
+        type: boolean
+        default: false
+      pgo_blocks:
+        description: "Number of blocks to execute for PGO profiling"
+        required: false
+        type: string
+        default: "20"
+
+jobs:
+  collect-pgo-profile:
+    if: github.repository == 'paradigmxyz/reth' && github.event_name == 'workflow_dispatch' && inputs.pgo
+    uses: ./.github/workflows/pgo-profile.yml
+    with:
+      pgo_blocks: ${{ inputs.pgo_blocks || '20' }}
+    secrets: inherit
+
+  build:
+    if: github.repository == 'paradigmxyz/reth' && !failure() && !cancelled()
+    name: Build Docker images
+    runs-on: ubuntu-24.04
+    needs: collect-pgo-profile
+    permissions:
+      packages: write
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Depot CLI
+        uses: depot/setup-action@v1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get git info for vergen
+        id: git
+        run: |
+          echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          echo "describe=$(git describe --always --tags)" >> "$GITHUB_OUTPUT"
+          echo "dirty=false" >> "$GITHUB_OUTPUT"
+
+      - name: Download pre-collected PGO profile
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.pgo }}
+        uses: actions/download-artifact@v7
+        with:
+          name: pgo-profdata
+          path: dist
+
+      - name: Configure PGO build args
+        id: pgo
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]] && [[ "${{ inputs.pgo }}" == "true" ]]; then
+            if [ ! -f dist/merged.profdata ]; then
+              echo "::error::Expected dist/merged.profdata from collect-pgo-profile job"
+              exit 1
+            fi
+            echo "use_pgo_bolt=true" >> "$GITHUB_OUTPUT"
+            echo "pgo_profdata=dist/merged.profdata" >> "$GITHUB_OUTPUT"
+            echo "Using pre-collected PGO profile from collect-pgo-profile job"
+          else
+            echo "use_pgo_bolt=false" >> "$GITHUB_OUTPUT"
+            echo "pgo_profdata=" >> "$GITHUB_OUTPUT"
+            echo "PGO disabled"
+          fi
+
+      - name: Determine build parameters
+        id: params
+        run: |
+          REGISTRY="ghcr.io/${{ github.repository_owner }}"
+
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+            echo "targets=ethereum" >> "$GITHUB_OUTPUT"
+
+            # Add 'latest' tag for non-RC releases
+            if [[ ! "$VERSION" =~ -rc ]]; then
+              echo "ethereum_tags=${REGISTRY}/reth:${VERSION},${REGISTRY}/reth:latest" >> "$GITHUB_OUTPUT"
+              {
+                echo "ethereum_set<<EOF"
+                echo "ethereum.tags=${REGISTRY}/reth:${VERSION}"
+                echo "ethereum.tags=${REGISTRY}/reth:latest"
+                echo "EOF"
+              } >> "$GITHUB_OUTPUT"
+            else
+              echo "ethereum_tags=${REGISTRY}/reth:${VERSION}" >> "$GITHUB_OUTPUT"
+              echo "ethereum_set=ethereum.tags=${REGISTRY}/reth:${VERSION}" >> "$GITHUB_OUTPUT"
+            fi
+
+          elif [[ "${{ github.event_name }}" == "schedule" ]] || [[ "${{ inputs.build_type }}" == "nightly" ]]; then
+            echo "targets=nightly" >> "$GITHUB_OUTPUT"
+            echo "ethereum_tags=${REGISTRY}/reth:nightly" >> "$GITHUB_OUTPUT"
+            echo "ethereum_set=ethereum.tags=${REGISTRY}/reth:nightly" >> "$GITHUB_OUTPUT"
+
+          else
+            # git-sha build
+            echo "targets=ethereum" >> "$GITHUB_OUTPUT"
+            echo "ethereum_tags=${REGISTRY}/reth:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+            echo "ethereum_set=ethereum.tags=${REGISTRY}/reth:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push images
+        uses: depot/bake-action@v1
+        env:
+          VERGEN_GIT_SHA: ${{ steps.git.outputs.sha }}
+          VERGEN_GIT_DESCRIBE: ${{ steps.git.outputs.describe }}
+          VERGEN_GIT_DIRTY: ${{ steps.git.outputs.dirty }}
+          DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
+        with:
+          project: ${{ vars.DEPOT_PROJECT_ID }}
+          files: docker-bake.hcl
+          targets: ${{ steps.params.outputs.targets }}
+          push: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+          set: |
+            ${{ steps.params.outputs.ethereum_set }}
+            *.args.USE_PGO_BOLT=${{ steps.pgo.outputs.use_pgo_bolt }}
+            *.args.PGO_PROFDATA=${{ steps.pgo.outputs.pgo_profdata }}
+            *.args.STRIP_SYMBOLS=false
+
+      - name: Verify image architectures
+        env:
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          ./.github/scripts/verify_image_arch.sh \
+            "${{ steps.params.outputs.targets }}" \
+            "ghcr.io/${{ github.repository_owner }}" \
+            "${{ steps.params.outputs.ethereum_tags }}"
+
+  notify:
+    name: Notify on failure
+    runs-on: ubuntu-latest
+    needs: build
+    if: failure() && github.event_name == 'schedule'
+    steps:
+      - name: Slack Webhook Action
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_COLOR: danger
+          SLACK_ICON_EMOJI: ":rotating_light:"
+          SLACK_USERNAME: "GitHub Actions"
+          SLACK_TITLE: ":rotating_light: Nightly Docker Build Failed"
+          SLACK_MESSAGE: |
+            The scheduled nightly Docker build failed.
+
+            *Commit:* `${{ github.sha }}`
+            *Branch:* `${{ github.ref_name }}`
+            *Run:* <https://github.com/paradigmxyz/reth/actions/runs/${{ github.run_id }}|View logs>
+
+            *Action required:* Re-run the workflow or investigate the build failure.
+
+            <@U0AAA8F0JEM> investigate and re-run if flaky
+          SLACK_FOOTER: "paradigmxyz/reth · docker.yml"
+          MSG_MINIMAL: true
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
