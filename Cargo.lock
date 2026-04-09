@@ -9421,6 +9421,7 @@ dependencies = [
 name = "reth-node-telos"
 version = "2.0.0"
 dependencies = [
+ "alloy-consensus",
  "alloy-eips",
  "alloy-genesis",
  "alloy-network",
@@ -9446,6 +9447,7 @@ dependencies = [
  "reth-node-builder",
  "reth-node-ethereum",
  "reth-payload-primitives",
+ "reth-payload-validator",
  "reth-primitives-traits",
  "reth-provider",
  "reth-revm",
