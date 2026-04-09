@@ -574,6 +574,18 @@ impl<N: ProviderNodeTypes> StateProviderFactory for BlockchainProvider<N> {
         } else if let Ok(Some(pending)) = self.pending_state_by_hash(hash) {
             // .. or this could be the pending state
             Ok(pending)
+        } else if reth_telos_primitives_traits::trust_consensus() {
+            // Telos: when trust_consensus is enabled we do not maintain the real
+            // state trie (nodeos is the source of truth). Any parent-hash lookup
+            // for an unknown block should fall back to the latest state we do
+            // have so execution can be bypassed downstream and the block entry
+            // still committed.
+            tracing::warn!(
+                target: "providers::blockchain",
+                %hash,
+                "Telos: trust_consensus - state for hash not found, falling back to latest"
+            );
+            self.latest()
         } else {
             // if we couldn't find it anywhere, then we should return an error
             Err(ProviderError::StateForHashNotFound(hash))

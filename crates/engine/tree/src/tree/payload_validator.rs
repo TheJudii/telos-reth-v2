@@ -359,8 +359,22 @@ where
         if let Err(consensus_err) =
             self.consensus.validate_header_against_parent(block.sealed_header(), parent_block)
         {
-            // Parent validation error takes precedence over execution error
-            return Err(InsertBlockError::new(block, consensus_err.into()).into())
+            if reth_telos_primitives_traits::trust_consensus() {
+                // Telos: trust_consensus - `parent_block` is the fallback (usually
+                // genesis) we substituted when the real parent wasn't in the tree/db,
+                // so parent-hash / number / timestamp mismatches are expected. The CL
+                // is the source of truth for block linkage; don't let this error
+                // escape as an Invalid payload status.
+                warn!(
+                    target: "engine::tree::payload_validator",
+                    block = ?block.num_hash(),
+                    error = %consensus_err,
+                    "Telos: trust_consensus - bypassing validate_header_against_parent failure in handle_execution_error"
+                );
+            } else {
+                // Parent validation error takes precedence over execution error
+                return Err(InsertBlockError::new(block, consensus_err.into()).into())
+            }
         }
 
         // No header validation errors, return the original execution error
@@ -1028,18 +1042,42 @@ where
         )?;
         drop(receipt_tx);
 
-        // Finish execution and get the result
-        let post_exec_start = Instant::now();
-        let (_evm, result) = debug_span!(target: "engine::tree", "BlockExecutor::finish")
-            .in_scope(|| executor.finish())
-            .map(|(evm, result)| (evm.into_db(), result))?;
-        self.metrics.record_post_execution(post_exec_start.elapsed());
+        // Finish execution and get the result.
+        //
+        // Telos: when `trust_consensus` is enabled we skip `executor.finish()` and
+        // `merge_transitions` entirely. `execute_transactions` already skipped every
+        // `executor.execute_transaction` call (see the trust_consensus branch in that
+        // function), so the executor's internal state and the bundle state are both
+        // empty / undefined. Calling `finish()` in that situation can fail (e.g. post-
+        // execution system-call accounting) and would bubble up through
+        // `handle_execution_error`, which runs an unconditional
+        // `validate_header_against_parent` against our fallback parent and yields the
+        // spurious "mismatched parent hash" InsertPayload error that the CL then sees.
+        //
+        // Instead, return an empty `BlockExecutionOutput` — the downstream
+        // `validate_post_execution` and state-root paths are already trust_consensus-
+        // aware and treat empty receipts / empty state as a no-op.
+        let output = if reth_telos_primitives_traits::trust_consensus() {
+            // Drop the executor without calling finish() — its internal state is empty
+            // because every `executor.execute_transaction` was skipped above. Dropping
+            // also releases the mutable borrow of `db`, after which `db` itself is
+            // dropped (we don't touch `db.take_bundle()` since no transitions exist).
+            drop(executor);
+            drop(db);
+            BlockExecutionOutput::default()
+        } else {
+            let post_exec_start = Instant::now();
+            let (_evm, result) = debug_span!(target: "engine::tree", "BlockExecutor::finish")
+                .in_scope(|| executor.finish())
+                .map(|(evm, result)| (evm.into_db(), result))?;
+            self.metrics.record_post_execution(post_exec_start.elapsed());
 
-        // Merge transitions into bundle state
-        debug_span!(target: "engine::tree", "merge_transitions")
-            .in_scope(|| db.merge_transitions(BundleRetention::Reverts));
+            // Merge transitions into bundle state
+            debug_span!(target: "engine::tree", "merge_transitions")
+                .in_scope(|| db.merge_transitions(BundleRetention::Reverts));
 
-        let output = BlockExecutionOutput { result, state: db.take_bundle() };
+            BlockExecutionOutput { result, state: db.take_bundle() }
+        };
 
         let execution_duration = execution_start.elapsed();
         self.metrics.record_block_execution(&output, execution_duration);
@@ -1074,10 +1112,22 @@ where
     {
         let mut senders = Vec::with_capacity(transaction_count);
 
-        // Apply pre-execution changes (e.g., beacon root update)
+        // Apply pre-execution changes (e.g., beacon root update).
+        //
+        // Telos: skip pre-execution changes entirely in trust_consensus mode.
+        // `apply_pre_execution_changes` can touch the underlying state provider
+        // (e.g. EIP-4788 beacon root system contract, system-call nonce bumps).
+        // When trust_consensus is enabled we may be building against a genesis
+        // fallback state provider that doesn't contain those accounts, in which
+        // case the call fails with a `ProviderError` that bubbles out as a fatal
+        // engine error and the CL sees a JSON-RPC Server error instead of a
+        // PayloadStatus. nodeos is the source of truth for state transitions, so
+        // just no-op here.
         let pre_exec_start = Instant::now();
-        debug_span!(target: "engine::tree", "pre_execution")
-            .in_scope(|| executor.apply_pre_execution_changes())?;
+        if !reth_telos_primitives_traits::trust_consensus() {
+            debug_span!(target: "engine::tree", "pre_execution")
+                .in_scope(|| executor.apply_pre_execution_changes())?;
+        }
         self.metrics.record_pre_execution(pre_exec_start.elapsed());
 
         // Execute transactions
@@ -1095,7 +1145,30 @@ where
             let Some(tx_result) = transactions.next() else { break };
             self.metrics.record_transaction_wait(wait_start.elapsed());
 
-            let tx = tx_result.map_err(BlockExecutionError::other)?;
+            // Telos: in trust_consensus mode, some testnet transactions have
+            // non-standard signatures that reth's ECDSA-recovery rejects with
+            // `RecoveryError`. nodeos already validated every transaction, so
+            // we don't actually need a correct signer here — execution is
+            // skipped entirely below. Push a zero-address placeholder so that
+            // `senders.len()` still matches the number of transactions in the
+            // block body (required by `with_senders`) and keep going.
+            let tx = match tx_result {
+                Ok(tx) => tx,
+                Err(err) => {
+                    if reth_telos_primitives_traits::trust_consensus() {
+                        debug!(
+                            target: "engine::tree",
+                            tx_index = senders.len(),
+                            error = %err,
+                            "Telos trust_consensus: skipping transaction with unrecoverable signature",
+                        );
+                        senders.push(Address::ZERO);
+                        executed_tx_index.store(senders.len(), Ordering::Relaxed);
+                        continue;
+                    }
+                    return Err(BlockExecutionError::other(err));
+                }
+            };
             let tx_signer = *<Tx as alloy_evm::RecoveredTx<InnerTx>>::signer(&tx);
 
             senders.push(tx_signer);
@@ -1418,6 +1491,39 @@ where
         V: PayloadValidator<T, Block = N::Block>,
     {
         let start = Instant::now();
+
+        // Telos: in trust_consensus mode, skip ALL post-execution consensus
+        // validation. nodeos already executed the EVM and validated every
+        // transaction, receipt, state root, logs bloom, and header; we don't
+        // have a coherent post-execution output here because
+        // `execute_transactions` deliberately skipped `execute_transaction` for
+        // every tx (to avoid touching state we don't have), so `output.receipts`
+        // is empty and `receipt_root_bloom` is None. Running any of the
+        // standard post-execution checks against that empty output will
+        // incorrectly flag the block as invalid. Short-circuit to Ok and let
+        // the consensus engine advance the canonical head.
+        if reth_telos_primitives_traits::trust_consensus() {
+            debug!(
+                target: "engine::tree::payload_validator",
+                block = ?block.num_hash(),
+                "Telos: trust_consensus - skipping all post-execution validation",
+            );
+            let _ = transaction_root;
+            let _ = receipt_root_bloom;
+            let _ = parent_block;
+            let _ = output;
+            let _ = ctx;
+            // Still realize the hashed state handle so the background task
+            // finishes cleanly (even though the resulting state is empty).
+            let _hashed_state_ref =
+                debug_span!(target: "engine::tree::payload_validator", "wait_hashed_post_state")
+                    .in_scope(|| hashed_state.get());
+            self.metrics
+                .block_validation
+                .post_execution_validation_duration
+                .record(start.elapsed().as_secs_f64());
+            return Ok(hashed_state);
+        }
 
         trace!(target: "engine::tree::payload_validator", block=?block.num_hash(), "Validating block consensus");
         // validate block consensus rules
