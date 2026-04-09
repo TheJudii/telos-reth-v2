@@ -1,0 +1,64 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+Subject: [PATCH] fix(telos-node): drop duplicate engine.* flags in TelosArgs
+
+TelosArgs previously declared its own `--engine.persistence-threshold`
+and `--engine.memory-block-buffer-target` fields. These shadowed the
+identical flags in upstream EngineArgs, which caused clap to fail
+at runtime with:
+
+    error: the following required argument was not provided:
+           persistence_threshold
+    Usage: Reth [OPTIONS] <COMMAND>
+
+When two `#[arg(long = ...)]` fields share the same long name inside a
+single Command, clap silently drops one of the two long attributes and
+falls back to treating that field as a required positional argument
+(named by the Rust field, hence the underscore). The result is that
+even a fully specified command line fails to parse, and the binary
+cannot start at all.
+
+Both of the duplicated fields were dead code inside the telos crates
+(no call site ever read `args.persistence_threshold` or
+`args.memory_block_buffer_target`), so the correct fix is to drop them
+entirely and let upstream EngineArgs own those knobs. The third
+telos-specific flag, `--engine.max-execute-block-batch-size`, does not
+clash with upstream and is kept.
+
+Reproducer: run any telos-reth subcommand with these flags explicitly
+set on the command line. Pre-patch, the node exits with status 2 and
+the message above before even reaching the `node` subcommand handler.
+
+Signed-off-by: Claude <noreply@anthropic.com>
+---
+ crates/telos/node/src/args.rs | 13 +------------
+ 1 file changed, 1 insertion(+), 12 deletions(-)
+
+diff --git a/crates/telos/node/src/args.rs b/crates/telos/node/src/args.rs
+--- a/crates/telos/node/src/args.rs
++++ b/crates/telos/node/src/args.rs
+@@ -1,9 +1,6 @@
+ //! clap [Args](clap::Args) for Telos configuration
+ 
+-use crate::{
+-    DEFAULT_MAX_EXECUTE_BLOCK_BATCH_SIZE, DEFAULT_MEMORY_BLOCK_BUFFER_TARGET,
+-    DEFAULT_PERSISTENCE_THRESHOLD,
+-};
++use crate::DEFAULT_MAX_EXECUTE_BLOCK_BATCH_SIZE;
+ use reth_telos_rpc::telos_client::TelosClientArgs;
+ 
+ /// Telos CLI arguments
+@@ -29,14 +26,6 @@ pub struct TelosArgs {
+     #[arg(long = "telos.gas_cache_seconds")]
+     pub gas_cache_seconds: Option<u32>,
+ 
+-    /// Configure persistence threshold for engine.
+-    #[arg(long = "engine.persistence-threshold", default_value_t = DEFAULT_PERSISTENCE_THRESHOLD)]
+-    pub persistence_threshold: u64,
+-
+-    /// Configure the target number of blocks to keep in memory.
+-    #[arg(long = "engine.memory-block-buffer-target", default_value_t = DEFAULT_MEMORY_BLOCK_BUFFER_TARGET)]
+-    pub memory_block_buffer_target: u64,
+-
+     /// Maximum number of blocks to execute sequentially in a batch.
+     #[arg(long = "engine.max-execute-block-batch-size", default_value_t = DEFAULT_MAX_EXECUTE_BLOCK_BATCH_SIZE)]
+     pub max_execute_block_batch_size: usize,
