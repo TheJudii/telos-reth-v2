@@ -40,6 +40,15 @@ pub struct TelosArgs {
     /// header root fields are empty-trie placeholders. Default: true.
     #[arg(long = "telos.trust_consensus", default_value_t = true, action = clap::ArgAction::Set)]
     pub trust_consensus: bool,
+
+    /// Build EVM state while keeping trust_consensus enabled. Executes transactions and builds state
+    /// without validating state roots, allowing hybrid mode for historical block analysis.
+
+
+
+
+    #[arg(long = "telos.build_state", default_value_t = false)]
+    pub build_state: bool,
 }
 
 impl Default for TelosArgs {
@@ -53,6 +62,7 @@ impl Default for TelosArgs {
             max_execute_block_batch_size: DEFAULT_MAX_EXECUTE_BLOCK_BATCH_SIZE,
             block_delta: None,
             trust_consensus: true,
+            build_state: false,
         }
     }
 }

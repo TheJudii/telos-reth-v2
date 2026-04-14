@@ -16,3 +16,4 @@ alloy-primitives = { workspace = true, features = ["serde", "std"] }
 revm = { workspace = true, features = ["std"] }
 tracing.workspace = true
 sha2 = "0.10"
+serde_json.workspace = true
