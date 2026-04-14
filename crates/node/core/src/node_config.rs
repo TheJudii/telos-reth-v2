@@ -419,13 +419,33 @@ impl<ChainSpec> NodeConfig<ChainSpec> {
 
         let head = provider.get_stage_checkpoint(StageId::Finish)?.unwrap_or_default().block_number;
 
-        let header = provider
-            .header_by_number(head)?
-            .expect("the header for the latest block is missing, database is corrupt");
-
-        let hash = provider
-            .block_hash(head)?
-            .expect("the hash for the latest block is missing, database is corrupt");
+        // Telos: when trust_consensus, walk back to find a valid header if the
+        // current head's header is missing (e.g., after incomplete static file compaction).
+        let (head, header, hash) = {
+            let mut check_head = head;
+            loop {
+                match (provider.header_by_number(check_head)?, provider.block_hash(check_head)?) {
+                    (Some(h), Some(bh)) => break (check_head, h, bh),
+                    _ => {
+                        if reth_telos_primitives_traits::trust_consensus() && check_head > 0 {
+                            check_head = check_head.saturating_sub(1000);
+                            if check_head == 0 {
+                                let h = provider.header_by_number(0)?.expect("genesis must exist");
+                                let bh = provider.block_hash(0)?.expect("genesis hash must exist");
+                                tracing::warn!("Telos: walked back to genesis from block {}", head);
+                                break (0, h, bh);
+                            }
+                            continue;
+                        }
+                        panic!("the header for the latest block is missing, database is corrupt");
+                    }
+                }
+            }
+        };
+        if head != provider.get_stage_checkpoint(StageId::Finish)?.unwrap_or_default().block_number {
+            tracing::warn!("Telos: using block {} as head (original was {})", head,
+                provider.get_stage_checkpoint(StageId::Finish)?.unwrap_or_default().block_number);
+        }
 
         Ok(Head {
             number: head,

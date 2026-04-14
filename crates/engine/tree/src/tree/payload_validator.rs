@@ -539,14 +539,17 @@ where
 
         // Create lazy overlay from ancestors - this doesn't block, allowing execution to start
         // before the trie data is ready. The overlay will be computed on first access.
-        let (lazy_overlay, anchor_hash) = Self::get_parent_lazy_overlay(parent_hash, ctx.state());
-
-        // Create overlay factory for payload processor (StateRootTask path needs it for
-        // multiproofs)
-        let overlay_factory =
+        // Telos: when trust_consensus is enabled, skip the lazy overlay entirely.
+        // Walking ancestor blocks to build the overlay is prohibitively expensive
+        // when there are millions of blocks with no changeset cache entries.
+        let overlay_factory = if reth_telos_primitives_traits::trust_consensus() {
+            OverlayStateProviderFactory::new(self.provider.clone(), self.changeset_cache.clone())
+        } else {
+            let (lazy_overlay, anchor_hash) = Self::get_parent_lazy_overlay(parent_hash, ctx.state());
             OverlayStateProviderFactory::new(self.provider.clone(), self.changeset_cache.clone())
                 .with_block_hash(Some(anchor_hash))
-                .with_lazy_overlay(lazy_overlay);
+                .with_lazy_overlay(lazy_overlay)
+        };
 
         // Spawn the appropriate processor based on strategy
         let mut handle = ensure_ok!(self.spawn_payload_processor(
@@ -677,7 +680,18 @@ where
         #[cfg(feature = "trie-debug")]
         let mut trie_debug_recorders = Vec::new();
 
-        match strategy {
+
+        // Telos: skip the expensive state root computation when trust_consensus
+        // is enabled. Use the header-declared state root (empty trie root) directly.
+        if reth_telos_primitives_traits::trust_consensus() {
+            maybe_state_root = Some((
+                block.header().state_root(),
+                Arc::new(TrieUpdates::default()),
+                root_time.elapsed(),
+            ));
+        }
+
+        if maybe_state_root.is_none() { match strategy {
             StateRootStrategy::StateRootTask => {
                 debug!(target: "engine::tree::payload_validator", "Using sparse trie state root algorithm");
 
@@ -764,7 +778,7 @@ where
                 }
             }
             StateRootStrategy::Synchronous => {}
-        }
+        } }  // end if maybe_state_root.is_none()
 
         // Determine the state root.
         // If the state root was computed in parallel, we use it.
@@ -817,9 +831,9 @@ where
         self.metrics
             .record_state_root_gas_bucket(block.header().gas_used(), root_elapsed.as_secs_f64());
         debug!(target: "engine::tree::payload_validator", ?root_elapsed, "Calculated state root");
-
         // ensure state root matches
         if state_root != block.header().state_root() {
+
             if reth_telos_primitives_traits::trust_consensus() {
                 // Telos: state root mismatch is expected — nodeos consensus guarantees validity.
                 debug!(
@@ -874,7 +888,6 @@ where
         // actually running, causing expensive DB fallback computations when building the overlay.
         let changeset_provider =
             ensure_ok_post_block!(overlay_factory.database_provider_ro(), block);
-
         let executed_block = self.spawn_deferred_trie_task(
             block,
             output,
@@ -1057,22 +1070,71 @@ where
         // Instead, return an empty `BlockExecutionOutput` — the downstream
         // `validate_post_execution` and state-root paths are already trust_consensus-
         // aware and treat empty receipts / empty state as a no-op.
-        let output = if reth_telos_primitives_traits::trust_consensus() {
-            // Drop the executor without calling finish() — its internal state is empty
-            // because every `executor.execute_transaction` was skipped above. Dropping
-            // also releases the mutable borrow of `db`, after which `db` itself is
-            // dropped (we don't touch `db.take_bundle()` since no transitions exist).
+        let output = if reth_telos_primitives_traits::trust_consensus() && !reth_telos_primitives_traits::build_state() {
+            // trust_consensus without build_state: skip everything, empty output
             drop(executor);
             drop(db);
             BlockExecutionOutput::default()
+        } else if reth_telos_primitives_traits::trust_consensus() && reth_telos_primitives_traits::build_state() {
+            // trust_consensus WITH build_state: skip executor.finish() (nothing was executed),
+            // but read state diffs from the CL extra fields and apply them to the revm State<DB>.
+            // This builds the EVM state from native-layer data without executing transactions.
+            drop(executor);
+
+            // Apply state diffs from CL extra fields
+            let block_hash = input.hash();
+            let extra_fields_path = format!("/tmp/telos-extra-fields/{block_hash:?}.json");
+            match reth_telos_rpc_engine_api::parse_extra_fields_from_file(&extra_fields_path) {
+                Ok(Some(extra_fields)) => {
+                    let statediffs_account = extra_fields.statediffs_account.unwrap_or_default();
+                    let statediffs_accountstate = extra_fields.statediffs_accountstate.unwrap_or_default();
+                    let new_addresses_using_create = extra_fields.new_addresses_using_create.unwrap_or_default();
+                    let new_addresses_using_openwallet = extra_fields.new_addresses_using_openwallet.unwrap_or_default();
+                    if !statediffs_account.is_empty() || !statediffs_accountstate.is_empty() {
+                        debug!(
+                            target: "engine::tree::payload_validator",
+                            block_hash = ?block_hash,
+                            accounts = statediffs_account.len(),
+                            storage = statediffs_accountstate.len(),
+                            "Telos: applying state diffs from extra fields"
+                        );
+                    }
+                    reth_telos_rpc_engine_api::compare::compare_state_diffs(
+                        &mut db,
+                        statediffs_account,
+                        statediffs_accountstate,
+                        new_addresses_using_create,
+                        new_addresses_using_openwallet,
+                        false,
+                        true,
+                    );
+                }
+                Ok(None) => {
+                    // File not found — expected for blocks before CL started
+                }
+                Err(e) => {
+                    warn!(
+                        target: "engine::tree::payload_validator",
+                        block_hash = ?block_hash,
+                        error = %e,
+                        "Telos: failed to load extra fields"
+                    );
+                }
+            }
+
+            // Merge transitions and produce output
+            debug_span!(target: "engine::tree", "merge_transitions")
+                .in_scope(|| db.merge_transitions(BundleRetention::Reverts));
+
+            BlockExecutionOutput { result: Default::default(), state: db.take_bundle() }
         } else {
+            // Normal execution path (non-trust_consensus)
             let post_exec_start = Instant::now();
             let (_evm, result) = debug_span!(target: "engine::tree", "BlockExecutor::finish")
                 .in_scope(|| executor.finish())
                 .map(|(evm, result)| (evm.into_db(), result))?;
             self.metrics.record_post_execution(post_exec_start.elapsed());
 
-            // Merge transitions into bundle state
             debug_span!(target: "engine::tree", "merge_transitions")
                 .in_scope(|| db.merge_transitions(BundleRetention::Reverts));
 

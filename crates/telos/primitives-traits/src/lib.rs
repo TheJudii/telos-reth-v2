@@ -27,6 +27,16 @@ pub fn set_trust_consensus(v: bool) {
 pub fn trust_consensus() -> bool {
     TRUST_CONSENSUS.load(Ordering::Relaxed)
 }
+/// Global flag: when true, reth executes blocks and builds EVM state even when trust_consensus is enabled.
+static BUILD_STATE: AtomicBool = AtomicBool::new(false);
+/// Set the global build_state flag (called once at startup).
+pub fn set_build_state(v: bool) {
+    BUILD_STATE.store(v, Ordering::Relaxed);
+}
+/// Returns true if reth should build EVM state even during trust_consensus execution.
+pub fn build_state() -> bool {
+    BUILD_STATE.load(Ordering::Relaxed)
+}
 
 /// Telos block extension fields, included in Headers table as part of Header
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]

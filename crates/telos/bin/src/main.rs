@@ -30,6 +30,7 @@ fn main() {
             // and trusts the consensus client (telos-consensus-client) to drive
             // execution. Required for Telos where real state lives in nodeos.
             reth_telos_primitives_traits::set_trust_consensus(telos_args.trust_consensus);
+            reth_telos_primitives_traits::set_build_state(telos_args.build_state);
             if telos_args.trust_consensus {
                 info!(target: "reth::cli", "Telos: trust_consensus enabled - trusting nodeos consensus for execution results");
             }

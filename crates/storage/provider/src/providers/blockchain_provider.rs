@@ -72,7 +72,25 @@ impl<N: ProviderNodeTypes> BlockchainProvider<N> {
                 drop(provider);
                 Ok(Self::with_latest(storage, SealedHeader::new(header, best.best_hash))?)
             }
-            None => Err(ProviderError::HeaderNotFound(best.best_number.into())),
+            None => if reth_telos_primitives_traits::trust_consensus() {
+                // Walk back to find a valid header when static files are corrupted
+                tracing::warn!("Telos: header {} not found, walking back to find valid block", best.best_number);
+                let mut check = best.best_number;
+                let (found_header, found_hash) = loop {
+                    check = check.saturating_sub(1000);
+                    if let (Some(h), Some(bh)) = (provider.header_by_number(check)?, provider.block_hash(check)?) {
+                        tracing::warn!("Telos: found valid header at block {}", check);
+                        break (h, bh);
+                    }
+                    if check == 0 {
+                        let h = provider.header_by_number(0)?.ok_or(ProviderError::HeaderNotFound(0u64.into()))?;
+                        let bh = provider.block_hash(0)?.ok_or(ProviderError::HeaderNotFound(0u64.into()))?;
+                        break (h, bh);
+                    }
+                };
+                drop(provider);
+                Ok(Self::with_latest(storage, SealedHeader::new(found_header, found_hash))?)
+            } else { Err(ProviderError::HeaderNotFound(best.best_number.into())) },
         }
     }
 
