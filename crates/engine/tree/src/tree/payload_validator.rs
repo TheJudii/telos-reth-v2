@@ -1126,7 +1126,40 @@ where
             debug_span!(target: "engine::tree", "merge_transitions")
                 .in_scope(|| db.merge_transitions(BundleRetention::Reverts));
 
-            BlockExecutionOutput { result: Default::default(), state: db.take_bundle() }
+            // Decode receipts from CL extra fields
+            let efp2 = format!("/tmp/telos-extra-fields/{block_hash:?}.json");
+            let mut result: alloy_evm::block::BlockExecutionResult<N::Receipt> = Default::default();
+            if let Ok(Some(ef)) = reth_telos_rpc_engine_api::parse_extra_fields_from_file(&efp2) {
+                let raw = ef.receipts.unwrap_or_default();
+                if !raw.is_empty() {
+                    let mut decoded_receipts = Vec::with_capacity(raw.len());
+                    for raw_receipt in &raw {
+                        match <N::Receipt as alloy_rlp::Decodable>::decode(&mut raw_receipt.as_slice()) {
+                            Ok(receipt) => decoded_receipts.push(receipt),
+                            Err(e) => {
+                                warn!(
+                                    target: "engine::tree::payload_validator",
+                                    error = %e,
+                                    "Telos: failed to decode receipt from extra fields"
+                                );
+                            }
+                        }
+                    }
+                    if !decoded_receipts.is_empty() {
+                        debug!(
+                            target: "engine::tree::payload_validator",
+                            block_hash = ?block_hash,
+                            count = decoded_receipts.len(),
+                            "Telos: decoded receipts from extra fields"
+                        );
+                    }
+                    result.receipts = decoded_receipts;
+                }
+            }
+            BlockExecutionOutput {
+                result,
+                state: db.take_bundle(),
+            }
         } else {
             // Normal execution path (non-trust_consensus)
             let post_exec_start = Instant::now();

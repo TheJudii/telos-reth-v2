@@ -23,3 +23,28 @@ pub fn parse_extra_fields_from_file(
         Err(e) => Err(format!("File read error: {e}")),
     }
 }
+
+/// Decode receipts from the CL extra fields.
+/// The CL sends receipts as RLP-encoded bytes (legacy Receipt format from telos-reth v1).
+/// Returns decoded receipts compatible with reth v2's Receipt type.
+pub fn decode_receipts_from_extra_fields(
+    raw_receipts: &[Vec<u8>],
+) -> Vec<reth_ethereum_primitives::Receipt> {
+    use alloy_rlp::Decodable;
+    raw_receipts
+        .iter()
+        .filter_map(|raw| {
+            match reth_ethereum_primitives::Receipt::decode(&mut raw.as_slice()) {
+                Ok(receipt) => Some(receipt),
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        raw_len = raw.len(),
+                        "Telos: failed to RLP-decode receipt from extra fields"
+                    );
+                    None
+                }
+            }
+        })
+        .collect()
+}
