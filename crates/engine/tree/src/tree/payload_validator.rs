@@ -1053,7 +1053,6 @@ where
             &receipt_tx,
             &executed_tx_index,
         )?;
-        drop(receipt_tx);
 
         // Finish execution and get the result.
         //
@@ -1074,6 +1073,7 @@ where
             // trust_consensus without build_state: skip everything, empty output
             drop(executor);
             drop(db);
+            drop(receipt_tx);
             BlockExecutionOutput::default()
         } else if reth_telos_primitives_traits::trust_consensus() && reth_telos_primitives_traits::build_state() {
             // trust_consensus WITH build_state: skip executor.finish() (nothing was executed),
@@ -1130,17 +1130,24 @@ where
             let efp2 = format!("/tmp/telos-extra-fields/{block_hash:?}.json");
             let mut result: alloy_evm::block::BlockExecutionResult<N::Receipt> = Default::default();
             if let Ok(Some(ef)) = reth_telos_rpc_engine_api::parse_extra_fields_from_file(&efp2) {
-                let raw = ef.receipts.unwrap_or_default();
-                if !raw.is_empty() {
-                    let mut decoded_receipts = Vec::with_capacity(raw.len());
-                    for raw_receipt in &raw {
+                let telos_receipts = ef.receipts.unwrap_or_default();
+                if !telos_receipts.is_empty() {
+                    // Convert CL structured receipts to RLP bytes, then decode via generic path
+                    let rlp_receipts = reth_telos_rpc_engine_api::telos_receipts_to_rlp(&telos_receipts);
+                    let mut decoded_receipts = Vec::with_capacity(rlp_receipts.len());
+                    for (idx, raw_receipt) in rlp_receipts.iter().enumerate() {
                         match <N::Receipt as alloy_rlp::Decodable>::decode(&mut raw_receipt.as_slice()) {
-                            Ok(receipt) => decoded_receipts.push(receipt),
+                            Ok(receipt) => {
+                                // Send receipt to the background receipt root task
+                                let _ = receipt_tx.send(IndexedReceipt::new(idx, receipt.clone()));
+                                decoded_receipts.push(receipt);
+                            }
                             Err(e) => {
                                 warn!(
                                     target: "engine::tree::payload_validator",
                                     error = %e,
-                                    "Telos: failed to decode receipt from extra fields"
+                                    raw_len = raw_receipt.len(),
+                                    "Telos: failed to decode receipt from CL extra fields"
                                 );
                             }
                         }
@@ -1150,18 +1157,20 @@ where
                             target: "engine::tree::payload_validator",
                             block_hash = ?block_hash,
                             count = decoded_receipts.len(),
-                            "Telos: decoded receipts from extra fields"
+                            "Telos: decoded receipts from CL extra fields"
                         );
                     }
                     result.receipts = decoded_receipts;
                 }
             }
+            drop(receipt_tx);
             BlockExecutionOutput {
                 result,
                 state: db.take_bundle(),
             }
         } else {
             // Normal execution path (non-trust_consensus)
+            drop(receipt_tx);
             let post_exec_start = Instant::now();
             let (_evm, result) = debug_span!(target: "engine::tree", "BlockExecutor::finish")
                 .in_scope(|| executor.finish())
