@@ -306,10 +306,14 @@ pub fn validate_against_parent_hash_number<H: BlockHeader>(
     };
 
     // Parent number is consistent.
-    // Telos: skip parent number check when trust_consensus is enabled.
-    // The Telos EVM starts at a high block number (e.g. testnet 137430501), not block 1,
-    // so genesis block 0 is followed by a non-sequential number which would normally fail.
-    if parent_number != header.number() && !reth_telos_primitives_traits::trust_consensus() {
+    // Telos: allow non-sequential parent→child only at the genesis→first-block boundary.
+    // The Telos EVM does not start at block 1 (e.g. testnet starts at 136393756), so the
+    // genesis block must be followed by a non-sequential child. After that first block,
+    // continuity is enforced even when trust_consensus is enabled — a consensus-trusting
+    // node still rejects skipped blocks mid-chain.
+    let genesis_boundary_exception =
+        reth_telos_primitives_traits::trust_consensus() && parent.number() == 0;
+    if parent_number != header.number() && !genesis_boundary_exception {
         return Err(ConsensusError::ParentBlockNumberMismatch {
             parent_block_number: parent.number(),
             block_number: header.number(),
@@ -567,6 +571,37 @@ mod tests {
             validate_block_pre_execution_with_tx_root(&block, &chain_spec, Some(tx_root)).is_ok()
         );
         assert!(validate_block_pre_execution_with_tx_root(&block, &chain_spec, None).is_ok());
+    }
+
+    /// Telos: after block 1, the consensus-trust bypass must NOT skip parent-number continuity.
+    /// Only the genesis→first-block boundary is allowed to be non-sequential.
+    #[test]
+    fn telos_trust_consensus_rejects_skipped_blocks_mid_chain() {
+        reth_telos_primitives_traits::set_trust_consensus(true);
+
+        let parent_header = Header { number: 5, ..Default::default() };
+        let parent = SealedHeader::seal_slow(parent_header);
+        let child = Header { number: 999, parent_hash: parent.hash(), ..Default::default() };
+
+        let err = validate_against_parent_hash_number(&child, &parent).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ConsensusError::ParentBlockNumberMismatch {
+                    parent_block_number: 5,
+                    block_number: 999,
+                }
+            ),
+            "expected ParentBlockNumberMismatch for parent=5,child=999, got {err:?}",
+        );
+
+        // Genesis→first-block boundary is still allowed.
+        let genesis_header = Header { number: 0, ..Default::default() };
+        let genesis = SealedHeader::seal_slow(genesis_header);
+        let first = Header { number: 136393756, parent_hash: genesis.hash(), ..Default::default() };
+        assert!(validate_against_parent_hash_number(&first, &genesis).is_ok());
+
+        reth_telos_primitives_traits::set_trust_consensus(false);
     }
 
     #[test]
