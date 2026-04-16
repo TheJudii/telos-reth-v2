@@ -10402,7 +10402,10 @@ dependencies = [
 name = "reth-telos-rpc-engine-api"
 version = "2.0.0"
 dependencies = [
+ "alloy-consensus",
  "alloy-primitives",
+ "alloy-rlp",
+ "reth-ethereum-primitives",
  "revm",
  "serde",
  "serde_json",

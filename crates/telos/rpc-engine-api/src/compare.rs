@@ -39,6 +39,9 @@ impl StateOverride {
 
         let mut acc = Account::default();
         acc.info = info;
+        // Mark as InMemoryChange so revm state persistence picks up these changes.
+        // Account::default() has status LoadedNotExisting which would be treated as unmodified.
+        acc.mark_touch();
         self.accounts.insert(address, acc);
     }
 
@@ -51,6 +54,7 @@ impl StateOverride {
         let acc = self.accounts.get_mut(&telos_row.address).unwrap();
         acc.info.balance = telos_row.balance;
         acc.info.nonce = telos_row.nonce;
+        acc.mark_touch();
         if !telos_row.code.is_empty() {
             acc.info.code_hash =
                 B256::from_slice(Sha256::digest(telos_row.code.as_ref()).as_slice());

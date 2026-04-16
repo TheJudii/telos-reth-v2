@@ -24,27 +24,47 @@ pub fn parse_extra_fields_from_file(
     }
 }
 
-/// Decode receipts from the CL extra fields.
-/// The CL sends receipts as RLP-encoded bytes (legacy Receipt format from telos-reth v1).
-/// Returns decoded receipts compatible with reth v2's Receipt type.
-pub fn decode_receipts_from_extra_fields(
-    raw_receipts: &[Vec<u8>],
-) -> Vec<reth_ethereum_primitives::Receipt> {
-    use alloy_rlp::Decodable;
-    raw_receipts
-        .iter()
-        .filter_map(|raw| {
-            match reth_ethereum_primitives::Receipt::decode(&mut raw.as_slice()) {
-                Ok(receipt) => Some(receipt),
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        raw_len = raw.len(),
-                        "Telos: failed to RLP-decode receipt from extra fields"
-                    );
-                    None
-                }
-            }
-        })
-        .collect()
+/// Convert a TelosExtraFieldReceipt (from CL JSON) into RLP-encoded bytes.
+///
+/// This builds an `EthereumReceipt` struct and RLP-encodes it. The payload validator
+/// then decodes these bytes via the generic `<N::Receipt as Decodable>::decode()` path.
+/// The round-trip works because `EthereumReceipt` derives both `RlpEncodable` and `RlpDecodable`.
+pub fn telos_receipt_to_rlp_bytes(
+    telos_receipt: &structs::TelosExtraFieldReceipt,
+) -> Vec<u8> {
+    use alloy_consensus::TxType;
+    use alloy_rlp::Encodable;
+
+    let tx_type = match telos_receipt.tx_type.as_str() {
+        "Legacy" => TxType::Legacy,
+        "Eip2930" => TxType::Eip2930,
+        "Eip1559" => TxType::Eip1559,
+        "Eip4844" => TxType::Eip4844,
+        "Eip7702" => TxType::Eip7702,
+        other => {
+            tracing::warn!(
+                tx_type = other,
+                "Telos: unknown tx_type in CL receipt, defaulting to Legacy"
+            );
+            TxType::Legacy
+        }
+    };
+
+    let receipt = reth_ethereum_primitives::Receipt {
+        tx_type,
+        success: telos_receipt.success,
+        cumulative_gas_used: telos_receipt.cumulative_gas_used,
+        logs: telos_receipt.logs.clone(),
+    };
+
+    let mut buf = Vec::new();
+    receipt.encode(&mut buf);
+    buf
+}
+
+/// Convert a batch of CL receipts to RLP-encoded byte arrays.
+pub fn telos_receipts_to_rlp(
+    telos_receipts: &[structs::TelosExtraFieldReceipt],
+) -> Vec<Vec<u8>> {
+    telos_receipts.iter().map(telos_receipt_to_rlp_bytes).collect()
 }
