@@ -72,7 +72,24 @@ impl<N: ProviderNodeTypes> BlockchainProvider<N> {
                 drop(provider);
                 Ok(Self::with_latest(storage, SealedHeader::new(header, best.best_hash))?)
             }
-            None => Err(ProviderError::HeaderNotFound(best.best_number.into())),
+            None => if reth_telos_primitives_traits::trust_consensus() {
+                tracing::warn!("Telos: header {} not found, walking back", best.best_number);
+                let mut check = best.best_number;
+                loop {
+                    check = check.saturating_sub(500);
+                    if let (Some(h), Some(bh)) = (provider.header_by_number(check)?, provider.block_hash(check)?) {
+                        tracing::warn!("Telos: found valid header at block {}", check);
+                        drop(provider);
+                        break Ok(Self::with_latest(storage, SealedHeader::new(h, bh))?)
+                    }
+                    if check == 0 {
+                        let h = provider.header_by_number(0)?.ok_or(ProviderError::HeaderNotFound(0u64.into()))?;
+                        let bh = provider.block_hash(0)?.ok_or(ProviderError::HeaderNotFound(0u64.into()))?;
+                        drop(provider);
+                        break Ok(Self::with_latest(storage, SealedHeader::new(h, bh))?)
+                    }
+                }
+            } else { Err(ProviderError::HeaderNotFound(best.best_number.into())) },
         }
     }
 
@@ -574,6 +591,18 @@ impl<N: ProviderNodeTypes> StateProviderFactory for BlockchainProvider<N> {
         } else if let Ok(Some(pending)) = self.pending_state_by_hash(hash) {
             // .. or this could be the pending state
             Ok(pending)
+        } else if reth_telos_primitives_traits::trust_consensus() {
+            // Telos: when trust_consensus is enabled we do not maintain the real
+            // state trie (nodeos is the source of truth). Any parent-hash lookup
+            // for an unknown block should fall back to the latest state we do
+            // have so execution can be bypassed downstream and the block entry
+            // still committed.
+            tracing::warn!(
+                target: "providers::blockchain",
+                %hash,
+                "Telos: trust_consensus - state for hash not found, falling back to latest"
+            );
+            self.latest()
         } else {
             // if we couldn't find it anywhere, then we should return an error
             Err(ProviderError::StateForHashNotFound(hash))

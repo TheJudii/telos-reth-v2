@@ -15,4 +15,8 @@ serde = { workspace = true, features = ["derive", "std"] }
 alloy-primitives = { workspace = true, features = ["serde", "std"] }
 revm = { workspace = true, features = ["std"] }
 tracing.workspace = true
+reth-ethereum-primitives.workspace = true
+alloy-rlp.workspace = true
 sha2 = "0.10"
+serde_json.workspace = true
+alloy-consensus.workspace = true

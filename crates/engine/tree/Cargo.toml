@@ -26,6 +26,7 @@ reth-payload-builder.workspace = true
 reth-payload-primitives.workspace = true
 reth-primitives-traits = { workspace = true, features = ["rayon", "dashmap"] }
 reth-telos-primitives-traits.workspace = true
+reth-telos-rpc-engine-api.workspace = true
 reth-ethereum-primitives.workspace = true
 reth-provider.workspace = true
 reth-prune.workspace = true

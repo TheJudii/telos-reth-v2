@@ -8316,6 +8316,7 @@ dependencies = [
  "reth-static-file",
  "reth-tasks",
  "reth-telos-primitives-traits",
+ "reth-telos-rpc-engine-api",
  "reth-testing-utils",
  "reth-tracing",
  "reth-trie",
@@ -9217,6 +9218,7 @@ dependencies = [
  "reth-stages",
  "reth-static-file",
  "reth-tasks",
+ "reth-telos-primitives-traits",
  "reth-tokio-util",
  "reth-tracing",
  "reth-transaction-pool",
@@ -9270,6 +9272,7 @@ dependencies = [
  "reth-storage-api",
  "reth-storage-errors",
  "reth-tasks",
+ "reth-telos-primitives-traits",
  "reth-tracing",
  "reth-tracing-otlp",
  "reth-transaction-pool",
@@ -10399,9 +10402,13 @@ dependencies = [
 name = "reth-telos-rpc-engine-api"
 version = "2.0.0"
 dependencies = [
+ "alloy-consensus",
  "alloy-primitives",
+ "alloy-rlp",
+ "reth-ethereum-primitives",
  "revm",
  "serde",
+ "serde_json",
  "sha2",
  "tracing",
 ]
