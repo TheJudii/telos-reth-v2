@@ -25,6 +25,11 @@ pub struct TelosClientArgs {
 ///
 /// Used primarily for forwarding `eth_sendRawTransaction` calls
 /// to the Telos native network for inclusion in blocks.
+///
+/// TODO(PR 2): this client is constructed but `send_to_telos` is never called. Port v1
+/// wiring from `crates/telos/rpc/src/eth/transaction.rs:38` into a custom `TelosEthApi`
+/// that overrides `send_raw_transaction` and forwards through this client.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct TelosClient {
     inner: Arc<TelosClientInner>,

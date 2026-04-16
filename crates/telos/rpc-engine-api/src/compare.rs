@@ -137,6 +137,13 @@ macro_rules! maybe_panic {
 /// This function validates that the execution results from revm match what the
 /// Telos native EVM contract reports. Any discrepancies are logged (or panicked
 /// in strict mode) and overridden to match the Telos state.
+///
+/// TODO(PR 2): signature regression from v1. V1 takes
+/// `revm_state_diffs: HashMap<Address, TransitionAccount>` (the pre-commit transition
+/// state); v2 dropped that parameter. The function as written cannot diff — it only
+/// reads post-commit state via `revm_db.basic(...)`. Fix the signature and wire it
+/// into the block executor. This function is currently unreferenced.
+#[allow(dead_code)]
 pub fn compare_state_diffs<DB>(
     revm_db: &mut State<DB>,
     statediffs_account: Vec<TelosAccountTableRow>,
