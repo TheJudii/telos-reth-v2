@@ -28,7 +28,12 @@ pub fn trust_consensus() -> bool {
     TRUST_CONSENSUS.load(Ordering::Relaxed)
 }
 
-/// Telos block extension fields, included in Headers table as part of Header
+/// Telos block extension fields, included in Headers table as part of Header.
+///
+/// TODO(PR 2): not yet threaded through the EVM config. Wire into `fill_tx_env` /
+/// `tx_env` so Telos-aware per-tx gas pricing and revision numbers apply during
+/// execution — see v1 `crates/evm/src/lib.rs:118`.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TelosBlockExtension {
     /// Initial gas price for this block
@@ -116,7 +121,11 @@ impl TelosBlockExtension {
     }
 }
 
-/// Telos transaction environment data
+/// Telos transaction environment data.
+///
+/// TODO(PR 2): consumed by `TelosBlockExtension::tx_env_at` but never plumbed into
+/// the EVM transaction environment. See `TelosBlockExtension` for the integration site.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TelosTxEnv {
     /// Gas price for this transaction
@@ -125,7 +134,11 @@ pub struct TelosTxEnv {
     pub revision: u64,
 }
 
-/// Telos gas price
+/// Telos gas price.
+///
+/// TODO(PR 2): field of `TelosBlockExtension::gas_price_change`, but the block
+/// extension itself is not yet wired into execution.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct GasPrice {
     /// Transaction height
@@ -134,7 +147,11 @@ pub struct GasPrice {
     pub price: U256,
 }
 
-/// Telos revision number
+/// Telos revision number.
+///
+/// TODO(PR 2): field of `TelosBlockExtension::revision_change`, but the block
+/// extension itself is not yet wired into execution.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Revision {
     /// Transaction height
