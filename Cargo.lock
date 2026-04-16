@@ -11969,7 +11969,9 @@ name = "telos-reth"
 version = "2.0.0"
 dependencies = [
  "clap",
+ "eyre",
  "reth",
+ "reth-chainspec",
  "reth-cli-util",
  "reth-ethereum-cli",
  "reth-node-builder",
