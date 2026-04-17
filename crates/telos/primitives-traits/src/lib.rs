@@ -152,3 +152,76 @@ pub struct Revision {
     /// Revision
     pub revision: u64,
 }
+
+/// Telos deferred-trie guard (pure, testable form).
+///
+/// Returns `true` iff the deferred trie task can be safely skipped for this
+/// block — i.e. we return `DeferredTrieData::ready(ComputedTrieData::default())`.
+///
+/// The guard must be FALSE whenever `build_state` is enabled, because in that
+/// mode `BundleState` carries real account/storage mutations applied from the
+/// CL extra-fields, and the computed `hashed_state` must flow through to
+/// `save_blocks -> write_hashed_state` to persist `HashedAccounts` /
+/// `HashedStorages` (the canonical state source in storage v2).
+///
+/// Regression guard for the session-4 "state evaporation" bug.
+pub const fn should_skip_deferred_trie(
+    trust_consensus: bool,
+    build_state: bool,
+    trie_output_empty: bool,
+) -> bool {
+    trust_consensus && !build_state && trie_output_empty
+}
+
+/// Convenience wrapper that reads the global flags.
+pub fn should_skip_deferred_trie_now(trie_output_empty: bool) -> bool {
+    should_skip_deferred_trie(trust_consensus(), build_state(), trie_output_empty)
+}
+
+#[cfg(test)]
+mod deferred_trie_guard_tests {
+    use super::should_skip_deferred_trie;
+
+    /// In `build_state` mode we MUST take the persist branch — the guard must
+    /// return `false` regardless of any other input. This is the exact
+    /// invariant that the session-4 fix introduced.
+    #[test]
+    fn build_state_always_takes_persist_branch() {
+        for &trust in &[true, false] {
+            for &empty in &[true, false] {
+                assert!(
+                    !should_skip_deferred_trie(trust, /* build_state = */ true, empty),
+                    "build_state=true must never skip deferred trie (trust={trust}, empty={empty})"
+                );
+            }
+        }
+    }
+
+    /// Plain `trust_consensus` (without `build_state`) with an empty trie output
+    /// is the original fast-path: skip the deferred task.
+    #[test]
+    fn trust_consensus_only_with_empty_trie_skips() {
+        assert!(should_skip_deferred_trie(true, false, true));
+    }
+
+    /// If `trie_output` is non-empty, we must NEVER skip — there's real work
+    /// to persist.
+    #[test]
+    fn non_empty_trie_output_never_skips() {
+        for &trust in &[true, false] {
+            for &bs in &[true, false] {
+                assert!(!should_skip_deferred_trie(trust, bs, /* empty = */ false));
+            }
+        }
+    }
+
+    /// Without `trust_consensus` the telos fast-path is off entirely.
+    #[test]
+    fn no_trust_consensus_never_skips() {
+        for &bs in &[true, false] {
+            for &empty in &[true, false] {
+                assert!(!should_skip_deferred_trie(false, bs, empty));
+            }
+        }
+    }
+}
