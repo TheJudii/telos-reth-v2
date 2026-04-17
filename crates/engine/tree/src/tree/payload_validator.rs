@@ -1947,7 +1947,16 @@ where
         // Telos: when trust_consensus is enabled and trie_output is empty (we bypassed
         // state-root computation), skip the deferred trie task entirely. Otherwise the
         // background task would walk an empty state and waste CPU while blocking nothing.
+        //
+        // EXCEPTION: in build_state mode we DO have real account/storage mutations in the
+        // BundleState (applied from the CL extra-fields). We must feed the computed hashed_state
+        // through to the deferred trie data so that save_blocks -> write_hashed_state persists
+        // it to the HashedAccounts/HashedStorages MDBX tables (the canonical state source in
+        // storage v2). If we used ComputedTrieData::default() here, the hashed_state would be
+        // discarded and persistence would silently no-op, causing state to evaporate once
+        // in-memory blocks get pruned past the persistence threshold.
         let deferred_trie_data = if reth_telos_primitives_traits::trust_consensus()
+            && !reth_telos_primitives_traits::build_state()
             && trie_output.is_empty()
         {
             DeferredTrieData::ready(ComputedTrieData::default())
