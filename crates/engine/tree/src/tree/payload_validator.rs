@@ -1955,14 +1955,12 @@ where
         // storage v2). If we used ComputedTrieData::default() here, the hashed_state would be
         // discarded and persistence would silently no-op, causing state to evaporate once
         // in-memory blocks get pruned past the persistence threshold.
-        let deferred_trie_data = if reth_telos_primitives_traits::trust_consensus()
-            && !reth_telos_primitives_traits::build_state()
-            && trie_output.is_empty()
-        {
-            DeferredTrieData::ready(ComputedTrieData::default())
-        } else {
-            DeferredTrieData::pending(hashed_state, trie_output, anchor_hash, ancestors)
-        };
+        let deferred_trie_data =
+            if reth_telos_primitives_traits::should_skip_deferred_trie_now(trie_output.is_empty()) {
+                DeferredTrieData::ready(ComputedTrieData::default())
+            } else {
+                DeferredTrieData::pending(hashed_state, trie_output, anchor_hash, ancestors)
+            };
         let deferred_handle_task = deferred_trie_data.clone();
         let block_validation_metrics = self.metrics.block_validation.clone();
 
