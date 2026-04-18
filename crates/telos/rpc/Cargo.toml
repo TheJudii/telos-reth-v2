@@ -35,4 +35,11 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 regex = "1"
 jsonrpsee-types.workspace = true
+jsonrpsee = { workspace = true }
 parking_lot.workspace = true
+
+# Antelope signing
+secp256k1 = { workspace = true }
+sha2 = "0.10"
+ripemd = "0.1"
+bs58 = "0.5"
