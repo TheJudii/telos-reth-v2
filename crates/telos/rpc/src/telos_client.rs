@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use alloy_primitives::{keccak256, Bytes, B256};
-use jsonrpsee::types::ErrorObject;
-use jsonrpsee::RpcModule;
+use jsonrpsee::server::RpcModule;
+use jsonrpsee_types::{ErrorObject, ErrorObjectOwned};
 use reth_rpc_eth_types::EthApiError;
 use secp256k1::SecretKey;
 use serde::{Deserialize, Serialize};
@@ -213,8 +213,7 @@ impl TelosClient {
     /// returns it synchronously after the native submission succeeds. It does NOT
     /// insert the transaction into reth's local pool — blocks produced by nodeos
     /// flow back through the consensus client and will land the tx naturally.
-    pub fn build_forwarder_module(&self) -> Result<RpcModule<()>, jsonrpsee::types::ErrorObjectOwned>
-    {
+    pub fn build_forwarder_module(&self) -> Result<RpcModule<()>, ErrorObjectOwned> {
         let client = self.clone();
         let mut module = RpcModule::new(());
         module
