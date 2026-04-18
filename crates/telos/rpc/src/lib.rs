@@ -2,5 +2,6 @@
 
 pub mod error;
 pub mod telos_client;
+pub mod antelope;
 
 pub use telos_client::TelosClient;
