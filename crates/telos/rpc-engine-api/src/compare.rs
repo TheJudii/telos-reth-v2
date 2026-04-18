@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::fmt::Display;
 
+use alloy_consensus::constants::KECCAK_EMPTY;
 use alloy_primitives::{Address, B256, Bytes, U256};
 use revm::database::State;
 use revm::state::{Account, AccountInfo, EvmStorage, EvmStorageSlot};
@@ -11,9 +12,6 @@ use sha2::{Digest, Sha256};
 use tracing::{debug, warn};
 
 use crate::structs::{TelosAccountStateTableRow, TelosAccountTableRow};
-
-/// KECCAK_EMPTY hash constant
-const KECCAK_EMPTY: B256 = B256::ZERO;
 
 struct StateOverride {
     accounts: AddressMap<Account>,
