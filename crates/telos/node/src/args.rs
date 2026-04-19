@@ -41,11 +41,9 @@ pub struct TelosArgs {
     #[arg(long = "telos.trust_consensus", default_value_t = true, action = clap::ArgAction::Set)]
     pub trust_consensus: bool,
 
-    /// Build EVM state while keeping trust_consensus enabled. Executes transactions and builds state
-    /// without validating state roots, allowing hybrid mode for historical block analysis.
-
-
-
+    /// Build EVM state while keeping trust_consensus enabled. Executes transactions and builds
+    /// state without validating state roots, allowing hybrid mode for historical block
+    /// analysis.
 
     #[arg(long = "telos.build_state", default_value_t = false)]
     pub build_state: bool,

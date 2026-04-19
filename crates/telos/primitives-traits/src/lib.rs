@@ -27,7 +27,8 @@ pub fn set_trust_consensus(v: bool) {
 pub fn trust_consensus() -> bool {
     TRUST_CONSENSUS.load(Ordering::Relaxed)
 }
-/// Global flag: when true, reth executes blocks and builds EVM state even when trust_consensus is enabled.
+/// Global flag: when true, reth executes blocks and builds EVM state even when trust_consensus is
+/// enabled.
 static BUILD_STATE: AtomicBool = AtomicBool::new(false);
 /// Set the global build_state flag (called once at startup).
 pub fn set_build_state(v: bool) {
@@ -108,19 +109,17 @@ impl TelosBlockExtension {
 
     /// Get `TelosTxEnv` at a given transaction index
     pub fn tx_env_at(&self, height: u64) -> TelosTxEnv {
-        let gas_price =
-            if self.gas_price_change.as_ref().is_some_and(|c| c.height <= height) {
-                self.gas_price_change.as_ref().unwrap().price
-            } else {
-                self.starting_gas_price
-            };
+        let gas_price = if self.gas_price_change.as_ref().is_some_and(|c| c.height <= height) {
+            self.gas_price_change.as_ref().unwrap().price
+        } else {
+            self.starting_gas_price
+        };
 
-        let revision =
-            if self.revision_change.as_ref().is_some_and(|c| c.height <= height) {
-                self.revision_change.as_ref().unwrap().revision
-            } else {
-                self.starting_revision_number
-            };
+        let revision = if self.revision_change.as_ref().is_some_and(|c| c.height <= height) {
+            self.revision_change.as_ref().unwrap().revision
+        } else {
+            self.starting_revision_number
+        };
 
         TelosTxEnv { gas_price, revision }
     }

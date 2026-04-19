@@ -54,7 +54,9 @@ where
     // Telos: skip receipt root validation when trust_consensus is enabled - EVM state
     // diverges from consensus due to system transactions. Block validity is guaranteed
     // by nodeos consensus.
-    if !reth_telos_primitives_traits::trust_consensus() && chain_spec.is_byzantium_active_at_block(block.header().number()) {
+    if !reth_telos_primitives_traits::trust_consensus() &&
+        chain_spec.is_byzantium_active_at_block(block.header().number())
+    {
         let result = if let Some((receipts_root, logs_bloom)) = receipt_root_bloom {
             compare_receipts_root_and_logs_bloom(
                 receipts_root,

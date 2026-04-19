@@ -8,14 +8,13 @@
 
 use alloy_primitives::B256;
 use reth_telos_rpc::antelope::{
-    name_to_u64, ref_block_num, ref_block_prefix, serialize_raw_action_data,
-    PackedAction, PackedTransaction,
+    name_to_u64, ref_block_num, ref_block_prefix, serialize_raw_action_data, PackedAction,
+    PackedTransaction,
 };
 
 fn main() {
     // --- Fixed inputs (must match conformance_pyntelope.py) ---
-    const CHAIN_ID_HEX: &str =
-        "1eaa0824707c8c16bd25145493bf062aecddfeb56c736f6ba6397a3c4d040c75";
+    const CHAIN_ID_HEX: &str = "1eaa0824707c8c16bd25145493bf062aecddfeb56c736f6ba6397a3c4d040c75";
     const EXPIRATION_UNIX: u32 = 1_700_000_000;
     const REF_BLOCK_NUM: u16 = 0x1234;
     const REF_BLOCK_PREFIX: u32 = 0xabcdef01;

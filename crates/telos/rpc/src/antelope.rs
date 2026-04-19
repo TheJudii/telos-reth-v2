@@ -5,8 +5,8 @@
 //!
 //! References:
 //! - EOSIO/Leap `fc` signature encoding (SIG_K1_ base58check with ripemd160("K1") checksum)
-//! - `transaction::sig_digest` = sha256(chain_id || packed_trx || cfa_hash)
-//!   where cfa_hash is 32 zero bytes when there are no context-free actions.
+//! - `transaction::sig_digest` = sha256(chain_id || packed_trx || cfa_hash) where cfa_hash is 32
+//!   zero bytes when there are no context-free actions.
 
 use alloy_primitives::B256;
 use ripemd::Ripemd160;
@@ -175,7 +175,8 @@ pub use secp256k1::SecretKey as Secp256k1SecretKey;
 
 // --- Action data serialization for eosio.evm::raw -------------------------
 
-/// Serialize the action data for `eosio.evm::raw(name ram_payer, bytes tx, bool estimate_gas, optional<checksum160> sender)`.
+/// Serialize the action data for `eosio.evm::raw(name ram_payer, bytes tx, bool estimate_gas,
+/// optional<checksum160> sender)`.
 pub fn serialize_raw_action_data(
     ram_payer: u64,
     tx_bytes: &[u8],
@@ -259,10 +260,7 @@ pub fn ref_block_prefix(block_id: &B256) -> u32 {
 }
 
 pub fn now_plus(seconds: u32) -> u32 {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0) as u32;
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) as u32;
     now + seconds
 }
 

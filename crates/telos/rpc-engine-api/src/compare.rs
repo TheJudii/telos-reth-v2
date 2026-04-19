@@ -1,13 +1,14 @@
-use std::collections::HashSet;
-use std::fmt::Display;
+use std::{collections::HashSet, fmt::Display};
 
 use alloy_consensus::constants::KECCAK_EMPTY;
-use alloy_primitives::{Address, B256, Bytes, U256};
-use revm::database::State;
-use revm::state::{Account, AccountInfo, EvmStorage, EvmStorageSlot};
-use revm::bytecode::Bytecode;
-use revm::primitives::AddressMap;
-use revm::{Database, DatabaseCommit};
+use alloy_primitives::{Address, Bytes, B256, U256};
+use revm::{
+    bytecode::Bytecode,
+    database::State,
+    primitives::AddressMap,
+    state::{Account, AccountInfo, EvmStorage, EvmStorageSlot},
+    Database, DatabaseCommit,
+};
 use sha2::{Digest, Sha256};
 use tracing::{debug, warn};
 
@@ -22,11 +23,7 @@ impl StateOverride {
         StateOverride { accounts: AddressMap::default() }
     }
 
-    fn maybe_init_account<DB: Database>(
-        &mut self,
-        revm_db: &mut State<DB>,
-        address: Address,
-    ) {
+    fn maybe_init_account<DB: Database>(&mut self, revm_db: &mut State<DB>, address: Address) {
         if self.accounts.contains_key(&address) {
             return;
         }
@@ -94,8 +91,7 @@ impl StateOverride {
         self.maybe_init_account(revm_db, address);
         let acc = self.accounts.get_mut(&address).unwrap();
         if !maybe_code.is_empty() {
-            acc.info.code_hash =
-                B256::from_slice(Sha256::digest(maybe_code.as_ref()).as_slice());
+            acc.info.code_hash = B256::from_slice(Sha256::digest(maybe_code.as_ref()).as_slice());
             acc.info.code = Some(Bytecode::new_legacy(maybe_code.clone()));
         } else {
             acc.info.code_hash = KECCAK_EMPTY;
@@ -113,10 +109,7 @@ impl StateOverride {
     ) {
         self.maybe_init_account(revm_db, address);
         let acc = self.accounts.get_mut(&address).unwrap();
-        acc.storage.insert(
-            key,
-            EvmStorageSlot::new_changed(old_val, new_val, 0),
-        );
+        acc.storage.insert(key, EvmStorageSlot::new_changed(old_val, new_val, 0));
     }
 
     pub fn apply<DB: Database>(&self, revm_db: &mut State<DB>) {
@@ -154,18 +147,17 @@ where
 {
     let mut state_override = StateOverride::new();
 
-    let new_addresses_using_openwallet_hashset: HashSet<Address> =
-        new_addresses_using_openwallet
-            .iter()
-            .map(|row| Address::from_word(B256::from(row.1)))
-            .collect();
+    let new_addresses_using_openwallet_hashset: HashSet<Address> = new_addresses_using_openwallet
+        .iter()
+        .map(|row| Address::from_word(B256::from(row.1)))
+        .collect();
 
     for row in &statediffs_account {
         // Skip addresses created via openwallet with zero state
-        if new_addresses_using_openwallet_hashset.contains(&row.address)
-            && row.balance == U256::ZERO
-            && row.nonce == 0
-            && row.code.is_empty()
+        if new_addresses_using_openwallet_hashset.contains(&row.address) &&
+            row.balance == U256::ZERO &&
+            row.nonce == 0 &&
+            row.code.is_empty()
         {
             continue;
         }

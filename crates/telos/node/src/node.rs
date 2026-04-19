@@ -4,8 +4,7 @@
 //! which are built on top of the standard Ethereum node components
 //! with Telos-specific extensions.
 
-use crate::args::TelosArgs;
-use crate::engine::TelosEngineValidatorBuilder;
+use crate::{args::TelosArgs, engine::TelosEngineValidatorBuilder};
 use alloy_rpc_types_engine::ExecutionData;
 use reth_chainspec::{ChainSpec, EthChainSpec, EthereumHardforks, Hardforks};
 use reth_engine_local::LocalPayloadAttributesBuilder;
@@ -304,8 +303,7 @@ where
         EthereumConsensusBuilder,
     >;
 
-    type AddOns =
-        TelosAddOns<NodeAdapter<N>, EthereumEthApiBuilder, TelosEngineValidatorBuilder>;
+    type AddOns = TelosAddOns<NodeAdapter<N>, EthereumEthApiBuilder, TelosEngineValidatorBuilder>;
 
     fn components_builder(&self) -> Self::ComponentsBuilder {
         Self::components()

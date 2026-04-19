@@ -756,8 +756,8 @@ where
             let should_make_canonical = if reth_telos_primitives_traits::trust_consensus() {
                 self.state.tree_state.canonical_block_hash() != block_hash
             } else {
-                self.is_sync_target_head(block_hash)
-                    && self.state.tree_state.canonical_block_hash() != block_hash
+                self.is_sync_target_head(block_hash) &&
+                    self.state.tree_state.canonical_block_hash() != block_hash
             };
             if should_make_canonical {
                 outcome = outcome.with_event(TreeEvent::TreeAction(TreeAction::MakeCanonical {

@@ -15,9 +15,7 @@ pub fn parse_extra_fields_from_file(
 ) -> Result<Option<structs::TelosEngineAPIExtraFields>, String> {
     match std::fs::read_to_string(path) {
         Ok(json_str) => {
-            serde_json::from_str(&json_str)
-                .map(Some)
-                .map_err(|e| format!("JSON parse error: {e}"))
+            serde_json::from_str(&json_str).map(Some).map_err(|e| format!("JSON parse error: {e}"))
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(format!("File read error: {e}")),
@@ -29,9 +27,7 @@ pub fn parse_extra_fields_from_file(
 /// This builds an `EthereumReceipt` struct and RLP-encodes it. The payload validator
 /// then decodes these bytes via the generic `<N::Receipt as Decodable>::decode()` path.
 /// The round-trip works because `EthereumReceipt` derives both `RlpEncodable` and `RlpDecodable`.
-pub fn telos_receipt_to_rlp_bytes(
-    telos_receipt: &structs::TelosExtraFieldReceipt,
-) -> Vec<u8> {
+pub fn telos_receipt_to_rlp_bytes(telos_receipt: &structs::TelosExtraFieldReceipt) -> Vec<u8> {
     use alloy_consensus::TxType;
     use alloy_rlp::Encodable;
 
@@ -63,8 +59,6 @@ pub fn telos_receipt_to_rlp_bytes(
 }
 
 /// Convert a batch of CL receipts to RLP-encoded byte arrays.
-pub fn telos_receipts_to_rlp(
-    telos_receipts: &[structs::TelosExtraFieldReceipt],
-) -> Vec<Vec<u8>> {
+pub fn telos_receipts_to_rlp(telos_receipts: &[structs::TelosExtraFieldReceipt]) -> Vec<Vec<u8>> {
     telos_receipts.iter().map(telos_receipt_to_rlp_bytes).collect()
 }

@@ -1,7 +1,6 @@
 //! Telos native chain client for forwarding transactions.
 
-use std::sync::Arc;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use alloy_primitives::{keccak256, Bytes, B256};
 use jsonrpsee::server::RpcModule;
@@ -55,18 +54,12 @@ struct GetInfoResponse {
 impl TelosClient {
     /// Creates a new [`TelosClient`]. Panics on missing or malformed required args.
     pub fn new(args: TelosClientArgs) -> Self {
-        let endpoint = args
-            .telos_endpoint
-            .expect("telos_endpoint is required for TelosClient");
-        let signer_account_str = args
-            .signer_account
-            .expect("signer_account is required for TelosClient");
-        let signer_permission_str = args
-            .signer_permission
-            .expect("signer_permission is required for TelosClient");
-        let signer_key_str = args
-            .signer_key
-            .expect("signer_key is required for TelosClient");
+        let endpoint = args.telos_endpoint.expect("telos_endpoint is required for TelosClient");
+        let signer_account_str =
+            args.signer_account.expect("signer_account is required for TelosClient");
+        let signer_permission_str =
+            args.signer_permission.expect("signer_permission is required for TelosClient");
+        let signer_key_str = args.signer_key.expect("signer_key is required for TelosClient");
 
         let signer_actor =
             name_to_u64(&signer_account_str).expect("invalid signer_account name encoding");
@@ -198,10 +191,7 @@ impl TelosClient {
         let status = resp.status();
         if !status.is_success() {
             let text = resp.text().await.unwrap_or_default();
-            return Err(antelope::AntelopeError::Nodeos {
-                status: status.as_u16(),
-                body: text,
-            });
+            return Err(antelope::AntelopeError::Nodeos { status: status.as_u16(), body: text });
         }
         Ok(())
     }
@@ -248,10 +238,7 @@ impl TelosClient {
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
-            return Err(antelope::AntelopeError::Nodeos {
-                status: status.as_u16(),
-                body,
-            });
+            return Err(antelope::AntelopeError::Nodeos { status: status.as_u16(), body });
         }
         let info: GetInfoResponse = resp.json().await?;
         Ok(info)
