@@ -6,11 +6,12 @@
     issue_tracker_base_url = "https://github.com/telosnetwork/telos-reth/issues/"
 )]
 #![cfg_attr(docsrs, feature(doc_cfg))]
+#![cfg_attr(not(feature = "std"), no_std)]
 
 use alloy_primitives::U256;
 use serde::{Deserialize, Serialize};
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, Ordering};
 
 /// Global flag: when true, reth trusts execution results from the consensus client (nodeos)
 /// instead of re-executing and re-verifying the state trie. Default: false.

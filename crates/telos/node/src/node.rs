@@ -14,17 +14,16 @@ use reth_ethereum_primitives::EthPrimitives;
 use reth_evm::{
     eth::spec::EthExecutorSpec, ConfigureEvm, EvmFactory, EvmFactoryFor, NextBlockEnvAttributes,
 };
-use reth_node_api::{
-    FullNodeComponents, NodeAddOns, PayloadAttributesBuilder,
-};
+use reth_node_api::{FullNodeComponents, NodeAddOns, PayloadAttributesBuilder};
 use reth_node_builder::{
     components::{BasicPayloadServiceBuilder, ComponentsBuilder},
     node::{FullNodeTypes, NodeTypes},
     rpc::{
         BasicEngineApiBuilder, BasicEngineValidatorBuilder, EngineApiBuilder, EngineValidatorAddOn,
-        EngineValidatorBuilder, EthApiBuilder, Identity, PayloadValidatorBuilder,
-        RethRpcAddOns, RpcAddOns, RpcHandle,
-    }, DebugNode, Node, NodeAdapter,
+        EngineValidatorBuilder, EthApiBuilder, Identity, PayloadValidatorBuilder, RethRpcAddOns,
+        RpcAddOns, RpcHandle,
+    },
+    DebugNode, Node, NodeAdapter,
 };
 use reth_node_ethereum::{
     node::{

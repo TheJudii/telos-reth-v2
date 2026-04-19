@@ -1135,7 +1135,8 @@ impl<N: NodePrimitives> StaticFileProviderRW<N> {
                 // static file with different tx numbers than the receipts file.
                 tracing::warn!(
                     "Telos: static file tx number mismatch (expected {}, got {}), updating range",
-                    next_tx, tx_num
+                    next_tx,
+                    tx_num
                 );
                 self.writer.user_header_mut().set_tx_range(tx_num, tx_num);
             } else {

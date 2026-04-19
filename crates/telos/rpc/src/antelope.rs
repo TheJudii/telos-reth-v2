@@ -5,8 +5,8 @@
 //!
 //! References:
 //! - EOSIO/Leap `fc` signature encoding (`SIG_K1_` base58check with ripemd160("K1") checksum)
-//! - `transaction::sig_digest` = sha256(`chain_id` || `packed_trx` || `cfa_hash`) where `cfa_hash` is 32
-//!   zero bytes when there are no context-free actions.
+//! - `transaction::sig_digest` = sha256(`chain_id` || `packed_trx` || `cfa_hash`) where `cfa_hash`
+//!   is 32 zero bytes when there are no context-free actions.
 
 use alloy_primitives::B256;
 use ripemd::Ripemd160;

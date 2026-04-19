@@ -23,7 +23,7 @@ reth-ethereum-cli.workspace = true
 # telos
 reth-node-telos.workspace = true
 reth-telos-rpc.workspace = true
-reth-telos-primitives-traits.workspace = true
+reth-telos-primitives-traits = { workspace = true, features = ["std"] }
 
 # cli
 clap = { workspace = true, features = ["derive", "env"] }
