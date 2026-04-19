@@ -216,6 +216,7 @@ pub fn serialize_raw_action_data(
 // --- Packed transaction ---------------------------------------------------
 
 /// An Antelope action in its binary-packable form.
+#[derive(Debug, Clone)]
 pub struct PackedAction {
     /// Contract account (name-encoded as u64) the action targets.
     pub account: u64,
@@ -229,6 +230,7 @@ pub struct PackedAction {
 
 /// An Antelope transaction in its binary-packable form (no context-free actions, no
 /// transaction-extensions).
+#[derive(Debug, Clone)]
 pub struct PackedTransaction {
     /// Absolute expiration timestamp, seconds since the Unix epoch.
     pub expiration: u32,
