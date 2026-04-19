@@ -22,7 +22,8 @@ pub fn parse_extra_fields_from_file(
     }
 }
 
-/// Convert a TelosExtraFieldReceipt (from CL JSON) into RLP-encoded bytes.
+/// Convert a [`TelosExtraFieldReceipt`](structs::TelosExtraFieldReceipt) (from CL JSON) into
+/// RLP-encoded bytes.
 ///
 /// This builds an `EthereumReceipt` struct and RLP-encodes it. The payload validator
 /// then decodes these bytes via the generic `<N::Receipt as Decodable>::decode()` path.
