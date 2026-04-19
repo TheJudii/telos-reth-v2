@@ -1,5 +1,5 @@
-//! Offline byte-for-byte conformance binary: emits packed_trx_hex for the same
-//! fixed inputs as conformance_pyntelope.py. Diffing the two must yield 0.
+//! Offline byte-for-byte conformance binary: emits `packed_trx_hex` for the same
+//! fixed inputs as `conformance_pyntelope.py`. Diffing the two must yield 0.
 //!
 //! This file is dropped in as `crates/telos/rpc/src/bin/antelope_conformance.rs`
 //! and built with `cargo run -p reth-telos-rpc --bin antelope_conformance`.

@@ -5,7 +5,7 @@
 //!
 //! References:
 //! - EOSIO/Leap `fc` signature encoding (`SIG_K1_` base58check with ripemd160("K1") checksum)
-//! - `transaction::sig_digest` = sha256(chain_id || packed_trx || cfa_hash) where cfa_hash is 32
+//! - `transaction::sig_digest` = sha256(`chain_id` || `packed_trx` || `cfa_hash`) where `cfa_hash` is 32
 //!   zero bytes when there are no context-free actions.
 
 use alloy_primitives::B256;
@@ -25,7 +25,7 @@ pub enum AntelopeError {
     /// An Antelope account/permission/action name did not fit the allowed encoding.
     #[error("invalid name: {0}")]
     InvalidName(&'static str),
-    /// Failed to hex-decode a field from a nodeos response (chain_id, block_id, ...).
+    /// Failed to hex-decode a field from a nodeos response (`chain_id`, `block_id`, ...).
     #[error("hex decode error: {0}")]
     Hex(#[from] hex::FromHexError),
     /// secp256k1 signing failed (for example, could not find a canonical signature).
@@ -71,7 +71,7 @@ pub fn name_to_u64(name: &str) -> Result<u64, AntelopeError> {
     Ok(value)
 }
 
-fn char_to_symbol(c: u8) -> Result<u8, AntelopeError> {
+const fn char_to_symbol(c: u8) -> Result<u8, AntelopeError> {
     match c {
         b'.' => Ok(0),
         b'1'..=b'5' => Ok(c - b'1' + 1),
@@ -283,7 +283,7 @@ impl PackedTransaction {
 // --- TAPOS helpers --------------------------------------------------------
 
 /// Extract `ref_block_num` from a block height (low 16 bits).
-pub fn ref_block_num(block_num: u32) -> u16 {
+pub const fn ref_block_num(block_num: u32) -> u16 {
     (block_num & 0xFFFF) as u16
 }
 
@@ -301,8 +301,8 @@ pub fn now_plus(seconds: u32) -> u32 {
 
 // --- sig_digest -----------------------------------------------------------
 
-/// Compute the signable digest: sha256(chain_id || packed_trx || cfa_hash),
-/// where cfa_hash is 32 zero bytes when there are no context-free actions.
+/// Compute the signable digest: sha256(`chain_id` || `packed_trx` || `cfa_hash`),
+/// where `cfa_hash` is 32 zero bytes when there are no context-free actions.
 pub fn sig_digest(chain_id: &B256, packed_trx: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(chain_id.as_slice());

@@ -1,11 +1,11 @@
 //! Telos engine validator - overrides block hash validation for legacy consensus client
 //! compatibility.
 //!
-//! The Telos consensus client (alloy 0.3.x) computes block_hash with base_fee_per_gas=None
-//! but sends a non-zero base_fee_per_gas in the ExecutionPayloadV1. Reth v1.11.x recomputes
-//! the hash using the payload's base_fee_per_gas and gets a mismatch.
+//! The Telos consensus client (alloy 0.3.x) computes `block_hash` with `base_fee_per_gas=None`
+//! but sends a non-zero `base_fee_per_gas` in the `ExecutionPayloadV1`. Reth v1.11.x recomputes
+//! the hash using the payload's `base_fee_per_gas` and gets a mismatch.
 //!
-//! Fix: trust the block_hash provided by the consensus client, skip hash recomputation.
+//! Fix: trust the `block_hash` provided by the consensus client, skip hash recomputation.
 
 use alloy_rpc_types_engine::{ExecutionData, PayloadError};
 use reth_chainspec::{EthChainSpec, EthereumHardforks};
@@ -18,10 +18,10 @@ use reth_payload_primitives::{
     EngineObjectValidationError, NewPayloadError, PayloadOrAttributes,
 };
 use reth_payload_validator::{cancun, prague, shanghai};
-use reth_primitives_traits::{RecoveredBlock, SealedBlock, SignedTransaction, SignerRecoverable};
+use reth_primitives_traits::{RecoveredBlock, SealedBlock, SignerRecoverable};
 use std::sync::Arc;
 
-/// Telos engine validator that trusts block_hash from the consensus client.
+/// Telos engine validator that trusts `block_hash` from the consensus client.
 #[derive(Debug, Clone)]
 pub struct TelosEngineValidator<ChainSpec = reth_chainspec::ChainSpec> {
     chain_spec: Arc<ChainSpec>,
@@ -34,7 +34,7 @@ impl<ChainSpec> TelosEngineValidator<ChainSpec> {
     }
 }
 
-/// Convert payload to block, trusting the block_hash from the consensus client.
+/// Convert payload to block, trusting the `block_hash` from the consensus client.
 fn telos_ensure_well_formed_payload(
     chain_spec: &impl EthereumHardforks,
     payload: ExecutionData,
@@ -97,7 +97,7 @@ where
         payload: ExecutionData,
     ) -> Result<RecoveredBlock<Self::Block>, NewPayloadError> {
         let sealed_block =
-            <TelosEngineValidator<ChainSpec> as PayloadValidator<Types>>::convert_payload_to_block(
+            <Self as PayloadValidator<Types>>::convert_payload_to_block(
                 self, payload,
             )?;
 
