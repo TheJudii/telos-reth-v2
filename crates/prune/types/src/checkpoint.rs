@@ -1,4 +1,5 @@
 use crate::PruneMode;
+#[allow(unused_imports)]
 use alloy_primitives::{bytes, BlockNumber, TxNumber};
 
 /// Saves the pruning progress of a stage.

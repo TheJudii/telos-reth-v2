@@ -38,6 +38,7 @@ std = [
     "reth-ethereum-primitives/std",
     "reth-execution-types/std",
     "reth-primitives-traits/std",
+    "reth-telos-primitives-traits/std",
     "tracing/std",
 ]
 

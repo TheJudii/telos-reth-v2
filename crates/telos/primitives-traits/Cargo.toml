@@ -11,5 +11,9 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-alloy-primitives = { workspace = true, features = ["serde"] }
-serde = { workspace = true, features = ["derive"] }
+alloy-primitives = { workspace = true, default-features = false, features = ["serde"] }
+serde = { workspace = true, default-features = false, features = ["derive"] }
+
+[features]
+default = ["std"]
+std = ["alloy-primitives/std", "serde/std"]

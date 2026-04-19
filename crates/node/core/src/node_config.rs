@@ -422,7 +422,9 @@ impl<ChainSpec> NodeConfig<ChainSpec> {
         let (head, header, hash) = {
             let mut h = head;
             loop {
-                if let (Some(hdr), Some(bh)) = (provider.header_by_number(h)?, provider.block_hash(h)?) {
+                if let (Some(hdr), Some(bh)) =
+                    (provider.header_by_number(h)?, provider.block_hash(h)?)
+                {
                     break (h, hdr, bh);
                 }
                 if reth_telos_primitives_traits::trust_consensus() && h > 0 {

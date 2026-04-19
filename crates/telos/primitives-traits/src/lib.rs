@@ -5,12 +5,13 @@
     html_favicon_url = "https://avatars0.githubusercontent.com/u/97369466?s=256",
     issue_tracker_base_url = "https://github.com/telosnetwork/telos-reth/issues/"
 )]
-#![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![cfg_attr(not(feature = "std"), no_std)]
 
 use alloy_primitives::U256;
 use serde::{Deserialize, Serialize};
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, Ordering};
 
 /// Global flag: when true, reth trusts execution results from the consensus client (nodeos)
 /// instead of re-executing and re-verifying the state trie. Default: false.
@@ -18,7 +19,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// Set once at startup from the `--telos.trust_consensus` CLI flag.
 static TRUST_CONSENSUS: AtomicBool = AtomicBool::new(false);
 
-/// Set the global trust_consensus flag (called once at startup).
+/// Set the global `trust_consensus` flag (called once at startup).
 pub fn set_trust_consensus(v: bool) {
     TRUST_CONSENSUS.store(v, Ordering::Relaxed);
 }
@@ -27,13 +28,14 @@ pub fn set_trust_consensus(v: bool) {
 pub fn trust_consensus() -> bool {
     TRUST_CONSENSUS.load(Ordering::Relaxed)
 }
-/// Global flag: when true, reth executes blocks and builds EVM state even when trust_consensus is enabled.
+/// Global flag: when true, reth executes blocks and builds EVM state even when `trust_consensus` is
+/// enabled.
 static BUILD_STATE: AtomicBool = AtomicBool::new(false);
-/// Set the global build_state flag (called once at startup).
+/// Set the global `build_state` flag (called once at startup).
 pub fn set_build_state(v: bool) {
     BUILD_STATE.store(v, Ordering::Relaxed);
 }
-/// Returns true if reth should build EVM state even during trust_consensus execution.
+/// Returns true if reth should build EVM state even during `trust_consensus` execution.
 pub fn build_state() -> bool {
     BUILD_STATE.load(Ordering::Relaxed)
 }
@@ -108,19 +110,17 @@ impl TelosBlockExtension {
 
     /// Get `TelosTxEnv` at a given transaction index
     pub fn tx_env_at(&self, height: u64) -> TelosTxEnv {
-        let gas_price =
-            if self.gas_price_change.as_ref().is_some_and(|c| c.height <= height) {
-                self.gas_price_change.as_ref().unwrap().price
-            } else {
-                self.starting_gas_price
-            };
+        let gas_price = if self.gas_price_change.as_ref().is_some_and(|c| c.height <= height) {
+            self.gas_price_change.as_ref().unwrap().price
+        } else {
+            self.starting_gas_price
+        };
 
-        let revision =
-            if self.revision_change.as_ref().is_some_and(|c| c.height <= height) {
-                self.revision_change.as_ref().unwrap().revision
-            } else {
-                self.starting_revision_number
-            };
+        let revision = if self.revision_change.as_ref().is_some_and(|c| c.height <= height) {
+            self.revision_change.as_ref().unwrap().revision
+        } else {
+            self.starting_revision_number
+        };
 
         TelosTxEnv { gas_price, revision }
     }
@@ -151,4 +151,77 @@ pub struct Revision {
     pub height: u64,
     /// Revision
     pub revision: u64,
+}
+
+/// Telos deferred-trie guard (pure, testable form).
+///
+/// Returns `true` iff the deferred trie task can be safely skipped for this
+/// block — i.e. we return `DeferredTrieData::ready(ComputedTrieData::default())`.
+///
+/// The guard must be FALSE whenever `build_state` is enabled, because in that
+/// mode `BundleState` carries real account/storage mutations applied from the
+/// CL extra-fields, and the computed `hashed_state` must flow through to
+/// `save_blocks -> write_hashed_state` to persist `HashedAccounts` /
+/// `HashedStorages` (the canonical state source in storage v2).
+///
+/// Regression guard for the session-4 "state evaporation" bug.
+pub const fn should_skip_deferred_trie(
+    trust_consensus: bool,
+    build_state: bool,
+    trie_output_empty: bool,
+) -> bool {
+    trust_consensus && !build_state && trie_output_empty
+}
+
+/// Convenience wrapper that reads the global flags.
+pub fn should_skip_deferred_trie_now(trie_output_empty: bool) -> bool {
+    should_skip_deferred_trie(trust_consensus(), build_state(), trie_output_empty)
+}
+
+#[cfg(test)]
+mod deferred_trie_guard_tests {
+    use super::should_skip_deferred_trie;
+
+    /// In `build_state` mode we MUST take the persist branch — the guard must
+    /// return `false` regardless of any other input. This is the exact
+    /// invariant that the session-4 fix introduced.
+    #[test]
+    fn build_state_always_takes_persist_branch() {
+        for &trust in &[true, false] {
+            for &empty in &[true, false] {
+                assert!(
+                    !should_skip_deferred_trie(trust, /* build_state = */ true, empty),
+                    "build_state=true must never skip deferred trie (trust={trust}, empty={empty})"
+                );
+            }
+        }
+    }
+
+    /// Plain `trust_consensus` (without `build_state`) with an empty trie output
+    /// is the original fast-path: skip the deferred task.
+    #[test]
+    fn trust_consensus_only_with_empty_trie_skips() {
+        assert!(should_skip_deferred_trie(true, false, true));
+    }
+
+    /// If `trie_output` is non-empty, we must NEVER skip — there's real work
+    /// to persist.
+    #[test]
+    fn non_empty_trie_output_never_skips() {
+        for &trust in &[true, false] {
+            for &bs in &[true, false] {
+                assert!(!should_skip_deferred_trie(trust, bs, /* empty = */ false));
+            }
+        }
+    }
+
+    /// Without `trust_consensus` the telos fast-path is off entirely.
+    #[test]
+    fn no_trust_consensus_never_skips() {
+        for &bs in &[true, false] {
+            for &empty in &[true, false] {
+                assert!(!should_skip_deferred_trie(false, bs, empty));
+            }
+        }
+    }
 }
