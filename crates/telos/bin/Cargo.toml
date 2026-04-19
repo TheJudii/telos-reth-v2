@@ -38,13 +38,13 @@ path = "src/main.rs"
 [features]
 default = ["jemalloc"]
 jemalloc = [
-	"reth-cli-util/jemalloc",
-	"reth-ethereum-cli/jemalloc",
-	"reth-provider/jemalloc"
+    "reth-cli-util/jemalloc",
+    "reth-ethereum-cli/jemalloc",
+    "reth-provider/jemalloc",
 ]
 jemalloc-prof = [
-	"reth-cli-util/jemalloc-prof",
-	"reth/jemalloc-prof",
-	"reth-ethereum-cli/jemalloc-prof"
+    "reth-cli-util/jemalloc-prof",
+    "reth/jemalloc-prof",
+    "reth-ethereum-cli/jemalloc-prof",
 ]
 asm-keccak = ["reth-node-ethereum/asm-keccak", "reth-ethereum-cli/asm-keccak"]

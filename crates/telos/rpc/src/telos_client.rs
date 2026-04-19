@@ -18,9 +18,13 @@ use crate::antelope::{
 /// Arguments for constructing a [`TelosClient`].
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TelosClientArgs {
+    /// HTTP endpoint for nodeos (e.g. `http://127.0.0.1:8888`).
     pub telos_endpoint: Option<String>,
+    /// Antelope account name that signs forwarded transactions (e.g. `rpc.evm`).
     pub signer_account: Option<String>,
+    /// Permission level used by the signer (e.g. `forward` or `active`).
     pub signer_permission: Option<String>,
+    /// WIF-encoded signer private key (`5K...` or `5J...`).
     pub signer_key: Option<String>,
 }
 
@@ -89,6 +93,7 @@ impl TelosClient {
         }
     }
 
+    /// Returns the nodeos HTTP endpoint this client was configured with.
     pub fn endpoint(&self) -> &str {
         &self.inner.endpoint
     }
@@ -197,7 +202,7 @@ impl TelosClient {
     }
 
     /// Build a jsonrpsee RPC module that overrides `eth_sendRawTransaction` to
-    /// forward the raw transaction to Telos native via [`send_to_telos`].
+    /// forward the raw transaction to Telos native via [`Self::send_to_telos`].
     ///
     /// The handler decodes the raw bytes, computes the EVM transaction hash, and
     /// returns it synchronously after the native submission succeeds. It does NOT
