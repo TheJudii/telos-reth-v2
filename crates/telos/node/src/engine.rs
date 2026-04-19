@@ -97,9 +97,7 @@ where
         payload: ExecutionData,
     ) -> Result<RecoveredBlock<Self::Block>, NewPayloadError> {
         let sealed_block =
-            <Self as PayloadValidator<Types>>::convert_payload_to_block(
-                self, payload,
-            )?;
+            <Self as PayloadValidator<Types>>::convert_payload_to_block(self, payload)?;
 
         // Telos: fallback for system transactions with non-standard signatures
         // Use Address::ZERO for any tx that fails ECDSA recovery

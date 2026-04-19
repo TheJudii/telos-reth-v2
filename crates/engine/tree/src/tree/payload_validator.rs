@@ -925,8 +925,8 @@ where
         // tree or on disk, fall back to the genesis header. The consensus client
         // provides correct execution results, so the parent header is only needed for
         // validation checks we skip anyway.
-        if reth_telos_primitives_traits::trust_consensus()
-            && let Ok(Some(genesis)) = self.provider.sealed_header(0)
+        if reth_telos_primitives_traits::trust_consensus() &&
+            let Ok(Some(genesis)) = self.provider.sealed_header(0)
         {
             debug!(
                 target: "engine::tree::payload_validator",
