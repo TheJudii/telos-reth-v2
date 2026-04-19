@@ -43,6 +43,7 @@ pub struct Command {
 
 impl Command {
     /// Execute `benchmark new-payload-only` command
+    #[allow(clippy::if_then_some_else_none)]
     pub async fn execute(self, _ctx: CliContext) -> eyre::Result<()> {
         let BenchContext {
             benchmark_mode,
