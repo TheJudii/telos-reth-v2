@@ -32,8 +32,9 @@ pub struct TelosAccountStateTableRow {
 }
 
 /// Receipt format as written by telos-consensus-client.
-/// Matches the CL JSON: {"tx_type": "Legacy", "success": true, "cumulative_gas_used": 21000,
-/// "logs": []}
+///
+/// Matches the CL JSON:
+/// `{"tx_type": "Legacy", "success": true, "cumulative_gas_used": 21000, "logs": []}`
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TelosExtraFieldReceipt {
     /// Transaction type as string ("Legacy", "Eip2930", "Eip1559", "Eip4844", "Eip7702")

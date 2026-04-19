@@ -6,7 +6,7 @@ use revm::{
     bytecode::Bytecode,
     database::State,
     primitives::AddressMap,
-    state::{Account, AccountInfo, EvmStorage, EvmStorageSlot},
+    state::{Account, AccountInfo, EvmStorageSlot},
     Database, DatabaseCommit,
 };
 use sha2::{Digest, Sha256};
@@ -19,8 +19,8 @@ struct StateOverride {
 }
 
 impl StateOverride {
-    pub fn new() -> Self {
-        StateOverride { accounts: AddressMap::default() }
+    pub(crate) fn new() -> Self {
+        Self { accounts: AddressMap::default() }
     }
 
     fn maybe_init_account<DB: Database>(&mut self, revm_db: &mut State<DB>, address: Address) {
@@ -32,15 +32,14 @@ impl StateOverride {
             Err(_) => AccountInfo::default(),
         };
 
-        let mut acc = Account::default();
-        acc.info = info;
+        let mut acc = Account { info, ..Account::default() };
         // Mark as InMemoryChange so revm state persistence picks up these changes.
         // Account::default() has status LoadedNotExisting which would be treated as unmodified.
         acc.mark_touch();
         self.accounts.insert(address, acc);
     }
 
-    pub fn override_account<DB: Database>(
+    pub(crate) fn override_account<DB: Database>(
         &mut self,
         revm_db: &mut State<DB>,
         telos_row: &TelosAccountTableRow,
@@ -50,17 +49,17 @@ impl StateOverride {
         acc.info.balance = telos_row.balance;
         acc.info.nonce = telos_row.nonce;
         acc.mark_touch();
-        if !telos_row.code.is_empty() {
+        if telos_row.code.is_empty() {
+            acc.info.code_hash = KECCAK_EMPTY;
+            acc.info.code = None;
+        } else {
             acc.info.code_hash =
                 B256::from_slice(Sha256::digest(telos_row.code.as_ref()).as_slice());
             acc.info.code = Some(Bytecode::new_legacy(telos_row.code.clone()));
-        } else {
-            acc.info.code_hash = KECCAK_EMPTY;
-            acc.info.code = None;
         }
     }
 
-    pub fn override_balance<DB: Database>(
+    pub(crate) fn override_balance<DB: Database>(
         &mut self,
         revm_db: &mut State<DB>,
         address: Address,
@@ -71,7 +70,7 @@ impl StateOverride {
         acc.info.balance = balance;
     }
 
-    pub fn override_nonce<DB: Database>(
+    pub(crate) fn override_nonce<DB: Database>(
         &mut self,
         revm_db: &mut State<DB>,
         address: Address,
@@ -82,7 +81,7 @@ impl StateOverride {
         acc.info.nonce = nonce;
     }
 
-    pub fn override_code<DB: Database>(
+    pub(crate) fn override_code<DB: Database>(
         &mut self,
         revm_db: &mut State<DB>,
         address: Address,
@@ -90,16 +89,16 @@ impl StateOverride {
     ) {
         self.maybe_init_account(revm_db, address);
         let acc = self.accounts.get_mut(&address).unwrap();
-        if !maybe_code.is_empty() {
-            acc.info.code_hash = B256::from_slice(Sha256::digest(maybe_code.as_ref()).as_slice());
-            acc.info.code = Some(Bytecode::new_legacy(maybe_code.clone()));
-        } else {
+        if maybe_code.is_empty() {
             acc.info.code_hash = KECCAK_EMPTY;
             acc.info.code = None;
+        } else {
+            acc.info.code_hash = B256::from_slice(Sha256::digest(maybe_code.as_ref()).as_slice());
+            acc.info.code = Some(Bytecode::new_legacy(maybe_code.clone()));
         }
     }
 
-    pub fn override_storage<DB: Database>(
+    pub(crate) fn override_storage<DB: Database>(
         &mut self,
         revm_db: &mut State<DB>,
         address: Address,
@@ -112,7 +111,7 @@ impl StateOverride {
         acc.storage.insert(key, EvmStorageSlot::new_changed(old_val, new_val, 0));
     }
 
-    pub fn apply<DB: Database>(&self, revm_db: &mut State<DB>) {
+    pub(crate) fn apply<DB: Database>(&self, revm_db: &mut State<DB>) {
         revm_db.commit(self.accounts.clone());
     }
 }

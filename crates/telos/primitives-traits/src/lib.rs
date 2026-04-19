@@ -5,7 +5,7 @@
     html_favicon_url = "https://avatars0.githubusercontent.com/u/97369466?s=256",
     issue_tracker_base_url = "https://github.com/telosnetwork/telos-reth/issues/"
 )]
-#![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 use alloy_primitives::U256;
 use serde::{Deserialize, Serialize};
@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// Set once at startup from the `--telos.trust_consensus` CLI flag.
 static TRUST_CONSENSUS: AtomicBool = AtomicBool::new(false);
 
-/// Set the global trust_consensus flag (called once at startup).
+/// Set the global `trust_consensus` flag (called once at startup).
 pub fn set_trust_consensus(v: bool) {
     TRUST_CONSENSUS.store(v, Ordering::Relaxed);
 }
@@ -27,14 +27,14 @@ pub fn set_trust_consensus(v: bool) {
 pub fn trust_consensus() -> bool {
     TRUST_CONSENSUS.load(Ordering::Relaxed)
 }
-/// Global flag: when true, reth executes blocks and builds EVM state even when trust_consensus is
+/// Global flag: when true, reth executes blocks and builds EVM state even when `trust_consensus` is
 /// enabled.
 static BUILD_STATE: AtomicBool = AtomicBool::new(false);
-/// Set the global build_state flag (called once at startup).
+/// Set the global `build_state` flag (called once at startup).
 pub fn set_build_state(v: bool) {
     BUILD_STATE.store(v, Ordering::Relaxed);
 }
-/// Returns true if reth should build EVM state even during trust_consensus execution.
+/// Returns true if reth should build EVM state even during `trust_consensus` execution.
 pub fn build_state() -> bool {
     BUILD_STATE.load(Ordering::Relaxed)
 }
