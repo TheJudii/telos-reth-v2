@@ -10381,18 +10381,12 @@ name = "reth-telos-rpc"
 version = "2.0.0"
 dependencies = [
  "alloy-primitives",
- "alloy-rpc-types-eth",
  "bs58",
  "hex",
  "jsonrpsee",
  "jsonrpsee-types",
- "parking_lot",
- "regex",
  "reqwest 0.13.2",
- "reth-chainspec",
- "reth-provider",
  "reth-rpc-eth-types",
- "reth-transaction-pool",
  "ripemd",
  "secp256k1 0.30.0",
  "serde",
