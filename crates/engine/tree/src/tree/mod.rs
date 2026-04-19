@@ -3321,32 +3321,41 @@ where
         // Telos: Fallback when parent hash isn't indexed in the DB.
         // Handles (1) init-state dummy blocks with B256::ZERO hashes,
         // (2) blocks persisted by the engine tree that don't get hash-indexed, and
-        // (3) a fresh start (best_block == 0) with trust_consensus — use genesis state.
-        if let Ok(best_block) = self.provider.best_block_number() {
-            if best_block > 0 {
-                debug!(
-                    target: "engine::tree",
-                    %hash,
-                    %best_block,
-                    "Telos: parent hash not found, using best persisted block state"
-                );
-                if let Some(header) = self.provider.sealed_header(best_block).ok().flatten() {
-                    return Ok(Some(StateProviderBuilder::new(
-                        self.provider.clone(),
-                        header.hash(),
-                        None,
-                    )))
+        // (3) a fresh start (best_block == 0) — use genesis state.
+        //
+        // Gated by `trust_consensus`: upstream reth (and its unit tests) must keep the
+        // original `Ok(None)` semantics so unknown-parent blocks get buffered by the
+        // engine tree instead of attached to an unrelated head. Attaching them causes
+        // deeper lookups to surface as `Provider(HeaderNotFound)`, which is the root
+        // cause of the `test_tree_persist_block_batch` and
+        // `test_engine_tree_live_sync_transition_required_blocks_requested` regressions.
+        if reth_telos_primitives_traits::trust_consensus() {
+            if let Ok(best_block) = self.provider.best_block_number() {
+                if best_block > 0 {
+                    debug!(
+                        target: "engine::tree",
+                        %hash,
+                        %best_block,
+                        "Telos: parent hash not found, using best persisted block state"
+                    );
+                    if let Some(header) = self.provider.sealed_header(best_block).ok().flatten() {
+                        return Ok(Some(StateProviderBuilder::new(
+                            self.provider.clone(),
+                            header.hash(),
+                            None,
+                        )))
+                    }
+                } else {
+                    // Fresh start with trust_consensus: use genesis state (block 0).
+                    // The consensus client provides execution results, so we don't need
+                    // accurate parent state - just a valid state provider to attach blocks to.
+                    debug!(
+                        target: "engine::tree",
+                        %hash,
+                        "Telos: trust_consensus fresh start, using genesis state"
+                    );
+                    return Ok(Some(StateProviderBuilder::new(self.provider.clone(), hash, None)))
                 }
-            } else if reth_telos_primitives_traits::trust_consensus() {
-                // Fresh start with trust_consensus: use genesis state (block 0).
-                // The consensus client provides execution results, so we don't need
-                // accurate parent state - just a valid state provider to attach blocks to.
-                debug!(
-                    target: "engine::tree",
-                    %hash,
-                    "Telos: trust_consensus fresh start, using genesis state"
-                );
-                return Ok(Some(StateProviderBuilder::new(self.provider.clone(), hash, None)))
             }
         }
 
