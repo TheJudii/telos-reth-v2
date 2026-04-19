@@ -77,6 +77,10 @@ exclude_crates=(
   reth-era-utils # tokio
   reth-tracing-otlp
   reth-node-ethstats
+  # Telos: pulls in secp256k1-sys / jsonrpsee-server / blocking Antelope client (not wasm-compatible)
+  reth-telos-rpc
+  reth-node-telos
+  reth-telos-rpc-engine-api
 )
 
 any_failed=0

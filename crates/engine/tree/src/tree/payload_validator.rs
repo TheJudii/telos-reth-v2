@@ -57,8 +57,8 @@ use reth_trie_sparse::debug_recorder::TrieDebugRecorder;
 
 use crate::tree::payload_processor::receipt_root_task::{IndexedReceipt, ReceiptRootTaskHandle};
 use reth_chain_state::{
-    CanonicalInMemoryState, ComputedTrieData, DeferredTrieData, ExecutedBlock, ExecutionTimingStats,
-    LazyOverlay,
+    CanonicalInMemoryState, ComputedTrieData, DeferredTrieData, ExecutedBlock,
+    ExecutionTimingStats, LazyOverlay,
 };
 use reth_consensus::{ConsensusError, FullConsensus, ReceiptRootBloom};
 use reth_engine_primitives::{
@@ -545,7 +545,8 @@ where
         let overlay_factory = if reth_telos_primitives_traits::trust_consensus() {
             OverlayStateProviderFactory::new(self.provider.clone(), self.changeset_cache.clone())
         } else {
-            let (lazy_overlay, anchor_hash) = Self::get_parent_lazy_overlay(parent_hash, ctx.state());
+            let (lazy_overlay, anchor_hash) =
+                Self::get_parent_lazy_overlay(parent_hash, ctx.state());
             OverlayStateProviderFactory::new(self.provider.clone(), self.changeset_cache.clone())
                 .with_block_hash(Some(anchor_hash))
                 .with_lazy_overlay(lazy_overlay)
@@ -680,7 +681,6 @@ where
         #[cfg(feature = "trie-debug")]
         let mut trie_debug_recorders = Vec::new();
 
-
         // Telos: skip the expensive state root computation when trust_consensus
         // is enabled. Use the header-declared state root (empty trie root) directly.
         if reth_telos_primitives_traits::trust_consensus() {
@@ -691,94 +691,96 @@ where
             ));
         }
 
-        if maybe_state_root.is_none() { match strategy {
-            StateRootStrategy::StateRootTask => {
-                debug!(target: "engine::tree::payload_validator", "Using sparse trie state root algorithm");
+        if maybe_state_root.is_none() {
+            match strategy {
+                StateRootStrategy::StateRootTask => {
+                    debug!(target: "engine::tree::payload_validator", "Using sparse trie state root algorithm");
 
-                let task_result = ensure_ok_post_block!(
-                    self.await_state_root_with_timeout(
-                        &mut handle,
-                        overlay_factory.clone(),
-                        &hashed_state,
-                    ),
-                    block
-                );
+                    let task_result = ensure_ok_post_block!(
+                        self.await_state_root_with_timeout(
+                            &mut handle,
+                            overlay_factory.clone(),
+                            &hashed_state,
+                        ),
+                        block
+                    );
 
-                match task_result {
-                    Ok(StateRootComputeOutcome {
-                        state_root,
-                        trie_updates,
-                        #[cfg(feature = "trie-debug")]
-                        debug_recorders,
-                    }) => {
-                        let elapsed = root_time.elapsed();
-                        info!(target: "engine::tree::payload_validator", ?state_root, ?elapsed, "State root task finished");
-
-                        #[cfg(feature = "trie-debug")]
-                        {
-                            trie_debug_recorders = debug_recorders;
-                        }
-
-                        // Compare trie updates with serial computation if configured
-                        if self.config.always_compare_trie_updates() {
-                            let _has_diff = self.compare_trie_updates_with_serial(
-                                overlay_factory.clone(),
-                                &hashed_state,
-                                trie_updates.as_ref().clone(),
-                            );
+                    match task_result {
+                        Ok(StateRootComputeOutcome {
+                            state_root,
+                            trie_updates,
                             #[cfg(feature = "trie-debug")]
-                            if _has_diff {
+                            debug_recorders,
+                        }) => {
+                            let elapsed = root_time.elapsed();
+                            info!(target: "engine::tree::payload_validator", ?state_root, ?elapsed, "State root task finished");
+
+                            #[cfg(feature = "trie-debug")]
+                            {
+                                trie_debug_recorders = debug_recorders;
+                            }
+
+                            // Compare trie updates with serial computation if configured
+                            if self.config.always_compare_trie_updates() {
+                                let _has_diff = self.compare_trie_updates_with_serial(
+                                    overlay_factory.clone(),
+                                    &hashed_state,
+                                    trie_updates.as_ref().clone(),
+                                );
+                                #[cfg(feature = "trie-debug")]
+                                if _has_diff {
+                                    Self::write_trie_debug_recorders(
+                                        block.header().number(),
+                                        &trie_debug_recorders,
+                                    );
+                                }
+                            }
+
+                            // we double check the state root here for good measure
+                            if state_root == block.header().state_root() {
+                                maybe_state_root = Some((state_root, trie_updates, elapsed))
+                            } else {
+                                warn!(
+                                    target: "engine::tree::payload_validator",
+                                    ?state_root,
+                                    block_state_root = ?block.header().state_root(),
+                                    "State root task returned incorrect state root"
+                                );
+                                #[cfg(feature = "trie-debug")]
                                 Self::write_trie_debug_recorders(
                                     block.header().number(),
                                     &trie_debug_recorders,
                                 );
+                                state_root_task_failed = true;
                             }
                         }
-
-                        // we double check the state root here for good measure
-                        if state_root == block.header().state_root() {
-                            maybe_state_root = Some((state_root, trie_updates, elapsed))
-                        } else {
-                            warn!(
-                                target: "engine::tree::payload_validator",
-                                ?state_root,
-                                block_state_root = ?block.header().state_root(),
-                                "State root task returned incorrect state root"
-                            );
-                            #[cfg(feature = "trie-debug")]
-                            Self::write_trie_debug_recorders(
-                                block.header().number(),
-                                &trie_debug_recorders,
-                            );
+                        Err(error) => {
+                            debug!(target: "engine::tree::payload_validator", %error, "State root task failed");
                             state_root_task_failed = true;
                         }
                     }
-                    Err(error) => {
-                        debug!(target: "engine::tree::payload_validator", %error, "State root task failed");
-                        state_root_task_failed = true;
+                }
+                StateRootStrategy::Parallel => {
+                    debug!(target: "engine::tree::payload_validator", "Using parallel state root algorithm");
+                    match self.compute_state_root_parallel(overlay_factory.clone(), &hashed_state) {
+                        Ok(result) => {
+                            let elapsed = root_time.elapsed();
+                            info!(
+                                target: "engine::tree::payload_validator",
+                                regular_state_root = ?result.0,
+                                ?elapsed,
+                                "Regular root task finished"
+                            );
+                            maybe_state_root = Some((result.0, Arc::new(result.1), elapsed));
+                        }
+                        Err(error) => {
+                            debug!(target: "engine::tree::payload_validator", %error, "Parallel state root computation failed");
+                        }
                     }
                 }
+                StateRootStrategy::Synchronous => {}
             }
-            StateRootStrategy::Parallel => {
-                debug!(target: "engine::tree::payload_validator", "Using parallel state root algorithm");
-                match self.compute_state_root_parallel(overlay_factory.clone(), &hashed_state) {
-                    Ok(result) => {
-                        let elapsed = root_time.elapsed();
-                        info!(
-                            target: "engine::tree::payload_validator",
-                            regular_state_root = ?result.0,
-                            ?elapsed,
-                            "Regular root task finished"
-                        );
-                        maybe_state_root = Some((result.0, Arc::new(result.1), elapsed));
-                    }
-                    Err(error) => {
-                        debug!(target: "engine::tree::payload_validator", %error, "Parallel state root computation failed");
-                    }
-                }
-            }
-            StateRootStrategy::Synchronous => {}
-        } }  // end if maybe_state_root.is_none()
+        } // end if maybe_state_root.is_none()
 
         // Determine the state root.
         // If the state root was computed in parallel, we use it.
@@ -820,7 +822,10 @@ where
                 );
 
                 if state_root_task_failed {
-                    self.metrics.block_validation.state_root_task_fallback_success_total.increment(1);
+                    self.metrics
+                        .block_validation
+                        .state_root_task_fallback_success_total
+                        .increment(1);
                 }
 
                 (root, Arc::new(updates), root_time.elapsed())
@@ -833,7 +838,6 @@ where
         debug!(target: "engine::tree::payload_validator", ?root_elapsed, "Calculated state root");
         // ensure state root matches
         if state_root != block.header().state_root() {
-
             if reth_telos_primitives_traits::trust_consensus() {
                 // Telos: state root mismatch is expected — nodeos consensus guarantees validity.
                 debug!(
@@ -921,15 +925,15 @@ where
         // tree or on disk, fall back to the genesis header. The consensus client
         // provides correct execution results, so the parent header is only needed for
         // validation checks we skip anyway.
-        if reth_telos_primitives_traits::trust_consensus() {
-            if let Ok(Some(genesis)) = self.provider.sealed_header(0) {
-                debug!(
-                    target: "engine::tree::payload_validator",
-                    %hash,
-                    "Telos: parent header not found, using genesis header"
-                );
-                return Ok(Some(genesis))
-            }
+        if reth_telos_primitives_traits::trust_consensus() &&
+            let Ok(Some(genesis)) = self.provider.sealed_header(0)
+        {
+            debug!(
+                target: "engine::tree::payload_validator",
+                %hash,
+                "Telos: parent header not found, using genesis header"
+            );
+            return Ok(Some(genesis))
         }
 
         Ok(None)
@@ -1069,13 +1073,17 @@ where
         // Instead, return an empty `BlockExecutionOutput` — the downstream
         // `validate_post_execution` and state-root paths are already trust_consensus-
         // aware and treat empty receipts / empty state as a no-op.
-        let output = if reth_telos_primitives_traits::trust_consensus() && !reth_telos_primitives_traits::build_state() {
+        let output = if reth_telos_primitives_traits::trust_consensus() &&
+            !reth_telos_primitives_traits::build_state()
+        {
             // trust_consensus without build_state: skip everything, empty output
             drop(executor);
             drop(db);
             drop(receipt_tx);
             BlockExecutionOutput::default()
-        } else if reth_telos_primitives_traits::trust_consensus() && reth_telos_primitives_traits::build_state() {
+        } else if reth_telos_primitives_traits::trust_consensus() &&
+            reth_telos_primitives_traits::build_state()
+        {
             // trust_consensus WITH build_state: skip executor.finish() (nothing was executed),
             // but read state diffs from the CL extra fields and apply them to the revm State<DB>.
             // This builds the EVM state from native-layer data without executing transactions.
@@ -1087,9 +1095,12 @@ where
             match reth_telos_rpc_engine_api::parse_extra_fields_from_file(&extra_fields_path) {
                 Ok(Some(extra_fields)) => {
                     let statediffs_account = extra_fields.statediffs_account.unwrap_or_default();
-                    let statediffs_accountstate = extra_fields.statediffs_accountstate.unwrap_or_default();
-                    let new_addresses_using_create = extra_fields.new_addresses_using_create.unwrap_or_default();
-                    let new_addresses_using_openwallet = extra_fields.new_addresses_using_openwallet.unwrap_or_default();
+                    let statediffs_accountstate =
+                        extra_fields.statediffs_accountstate.unwrap_or_default();
+                    let new_addresses_using_create =
+                        extra_fields.new_addresses_using_create.unwrap_or_default();
+                    let new_addresses_using_openwallet =
+                        extra_fields.new_addresses_using_openwallet.unwrap_or_default();
                     if !statediffs_account.is_empty() || !statediffs_accountstate.is_empty() {
                         debug!(
                             target: "engine::tree::payload_validator",
@@ -1133,10 +1144,13 @@ where
                 let telos_receipts = ef.receipts.unwrap_or_default();
                 if !telos_receipts.is_empty() {
                     // Convert CL structured receipts to RLP bytes, then decode via generic path
-                    let rlp_receipts = reth_telos_rpc_engine_api::telos_receipts_to_rlp(&telos_receipts);
+                    let rlp_receipts =
+                        reth_telos_rpc_engine_api::telos_receipts_to_rlp(&telos_receipts);
                     let mut decoded_receipts = Vec::with_capacity(rlp_receipts.len());
                     for (idx, raw_receipt) in rlp_receipts.iter().enumerate() {
-                        match <N::Receipt as alloy_rlp::Decodable>::decode(&mut raw_receipt.as_slice()) {
+                        match <N::Receipt as alloy_rlp::Decodable>::decode(
+                            &mut raw_receipt.as_slice(),
+                        ) {
                             Ok(receipt) => {
                                 // Send receipt to the background receipt root task
                                 let _ = receipt_tx.send(IndexedReceipt::new(idx, receipt.clone()));
@@ -1164,10 +1178,7 @@ where
                 }
             }
             drop(receipt_tx);
-            BlockExecutionOutput {
-                result,
-                state: db.take_bundle(),
-            }
+            BlockExecutionOutput { result, state: db.take_bundle() }
         } else {
             // Normal execution path (non-trust_consensus)
             drop(receipt_tx);
@@ -1955,10 +1966,9 @@ where
         // storage v2). If we used ComputedTrieData::default() here, the hashed_state would be
         // discarded and persistence would silently no-op, causing state to evaporate once
         // in-memory blocks get pruned past the persistence threshold.
-        let deferred_trie_data = if reth_telos_primitives_traits::trust_consensus()
-            && !reth_telos_primitives_traits::build_state()
-            && trie_output.is_empty()
-        {
+        let deferred_trie_data = if reth_telos_primitives_traits::should_skip_deferred_trie_now(
+            trie_output.is_empty(),
+        ) {
             DeferredTrieData::ready(ComputedTrieData::default())
         } else {
             DeferredTrieData::pending(hashed_state, trie_output, anchor_hash, ancestors)

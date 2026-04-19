@@ -72,24 +72,34 @@ impl<N: ProviderNodeTypes> BlockchainProvider<N> {
                 drop(provider);
                 Ok(Self::with_latest(storage, SealedHeader::new(header, best.best_hash))?)
             }
-            None => if reth_telos_primitives_traits::trust_consensus() {
-                tracing::warn!("Telos: header {} not found, walking back", best.best_number);
-                let mut check = best.best_number;
-                loop {
-                    check = check.saturating_sub(500);
-                    if let (Some(h), Some(bh)) = (provider.header_by_number(check)?, provider.block_hash(check)?) {
-                        tracing::warn!("Telos: found valid header at block {}", check);
-                        drop(provider);
-                        break Ok(Self::with_latest(storage, SealedHeader::new(h, bh))?)
+            None => {
+                if reth_telos_primitives_traits::trust_consensus() {
+                    tracing::warn!("Telos: header {} not found, walking back", best.best_number);
+                    let mut check = best.best_number;
+                    loop {
+                        check = check.saturating_sub(500);
+                        if let (Some(h), Some(bh)) =
+                            (provider.header_by_number(check)?, provider.block_hash(check)?)
+                        {
+                            tracing::warn!("Telos: found valid header at block {}", check);
+                            drop(provider);
+                            break Ok(Self::with_latest(storage, SealedHeader::new(h, bh))?)
+                        }
+                        if check == 0 {
+                            let h = provider
+                                .header_by_number(0)?
+                                .ok_or(ProviderError::HeaderNotFound(0u64.into()))?;
+                            let bh = provider
+                                .block_hash(0)?
+                                .ok_or(ProviderError::HeaderNotFound(0u64.into()))?;
+                            drop(provider);
+                            break Ok(Self::with_latest(storage, SealedHeader::new(h, bh))?)
+                        }
                     }
-                    if check == 0 {
-                        let h = provider.header_by_number(0)?.ok_or(ProviderError::HeaderNotFound(0u64.into()))?;
-                        let bh = provider.block_hash(0)?.ok_or(ProviderError::HeaderNotFound(0u64.into()))?;
-                        drop(provider);
-                        break Ok(Self::with_latest(storage, SealedHeader::new(h, bh))?)
-                    }
+                } else {
+                    Err(ProviderError::HeaderNotFound(best.best_number.into()))
                 }
-            } else { Err(ProviderError::HeaderNotFound(best.best_number.into())) },
+            }
         }
     }
 

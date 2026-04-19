@@ -763,8 +763,8 @@ impl<N: NodePrimitives> StaticFileProviderRW<N> {
         // Instead, commit the current file and re-seat the writer onto a
         // fresh static file whose `expected_block_start` is the incoming
         // block, so subsequent writes land at row 0 of the new file.
-        if reth_telos_primitives_traits::trust_consensus()
-            && expected_block_number != self.next_block_number()
+        if reth_telos_primitives_traits::trust_consensus() &&
+            expected_block_number != self.next_block_number()
         {
             tracing::warn!(
                 target: "providers::static_file",
@@ -800,16 +800,12 @@ impl<N: NodePrimitives> StaticFileProviderRW<N> {
                 None,
                 segment,
             );
-            self.writer
-                .user_header_mut()
-                .set_expected_block_start(expected_block_number);
+            self.writer.user_header_mut().set_expected_block_start(expected_block_number);
 
             if segment.is_change_based() {
                 let csoff_path = data_path.with_extension("csoff");
-                self.changeset_offsets = Some(
-                    ChangesetOffsetWriter::new(&csoff_path, 0)
-                        .map_err(ProviderError::other)?,
-                );
+                self.changeset_offsets =
+                    Some(ChangesetOffsetWriter::new(&csoff_path, 0).map_err(ProviderError::other)?);
                 self.current_changeset_offset = None;
             }
         }
@@ -1132,24 +1128,23 @@ impl<N: NodePrimitives> StaticFileProviderRW<N> {
     ) -> ProviderResult<()> {
         if let Some(range) = self.writer.user_header().tx_range() {
             let next_tx = range.end() + 1;
-            if next_tx != tx_num {
-                if reth_telos_primitives_traits::trust_consensus() {
-                    // Telos: genesis transactions may have pre-populated the transactions
-                    // static file with different tx numbers than the receipts file.
-                    tracing::warn!(
-                        "Telos: static file tx number mismatch (expected {}, got {}), updating range",
-                        next_tx, tx_num
-                    );
-                    self.writer.user_header_mut().set_tx_range(tx_num, tx_num);
-                } else {
-                    return Err(ProviderError::UnexpectedStaticFileTxNumber(
-                        self.writer.user_header().segment(),
-                        tx_num,
-                        next_tx,
-                    ))
-                }
-            } else {
+            if next_tx == tx_num {
                 self.writer.user_header_mut().increment_tx();
+            } else if reth_telos_primitives_traits::trust_consensus() {
+                // Telos: genesis transactions may have pre-populated the transactions
+                // static file with different tx numbers than the receipts file.
+                tracing::warn!(
+                    "Telos: static file tx number mismatch (expected {}, got {}), updating range",
+                    next_tx,
+                    tx_num
+                );
+                self.writer.user_header_mut().set_tx_range(tx_num, tx_num);
+            } else {
+                return Err(ProviderError::UnexpectedStaticFileTxNumber(
+                    self.writer.user_header().segment(),
+                    tx_num,
+                    next_tx,
+                ))
             }
         } else {
             self.writer.user_header_mut().set_tx_range(tx_num, tx_num);
