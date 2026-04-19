@@ -4,7 +4,7 @@
 //! submit an `eosio.evm::raw` action wrapping an Ethereum transaction.
 //!
 //! References:
-//! - EOSIO/Leap `fc` signature encoding (SIG_K1_ base58check with ripemd160("K1") checksum)
+//! - EOSIO/Leap `fc` signature encoding (`SIG_K1_` base58check with ripemd160("K1") checksum)
 //! - `transaction::sig_digest` = sha256(chain_id || packed_trx || cfa_hash) where cfa_hash is 32
 //!   zero bytes when there are no context-free actions.
 
@@ -16,22 +16,36 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 // --- Errors --------------------------------------------------------------
 
+/// Errors produced by the Antelope signing / submission helpers.
 #[derive(Debug, thiserror::Error)]
 pub enum AntelopeError {
+    /// The WIF-encoded private key was malformed or failed the base58check checksum.
     #[error("invalid WIF key: {0}")]
     InvalidWif(&'static str),
+    /// An Antelope account/permission/action name did not fit the allowed encoding.
     #[error("invalid name: {0}")]
     InvalidName(&'static str),
+    /// Failed to hex-decode a field from a nodeos response (chain_id, block_id, ...).
     #[error("hex decode error: {0}")]
     Hex(#[from] hex::FromHexError),
+    /// secp256k1 signing failed (for example, could not find a canonical signature).
     #[error("signing error: {0}")]
     Signing(&'static str),
+    /// Underlying HTTP transport error while talking to nodeos.
     #[error("http error: {0}")]
     Http(#[from] reqwest::Error),
+    /// Failed to (de)serialize a nodeos JSON payload.
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
+    /// Nodeos returned a non-2xx HTTP status; carries the status code and response body.
     #[error("nodeos error {status}: {body}")]
-    Nodeos { status: u16, body: String },
+    Nodeos {
+        /// HTTP status code returned by nodeos.
+        status: u16,
+        /// Raw response body returned by nodeos (typically JSON).
+        body: String,
+    },
+    /// The `last_irreversible_block_id` from `get_info` was not a 32-byte hex blob.
     #[error("bad block_id hex in get_info response")]
     BadBlockId,
 }
@@ -68,6 +82,7 @@ fn char_to_symbol(c: u8) -> Result<u8, AntelopeError> {
 
 // --- Varint ---------------------------------------------------------------
 
+/// Append an Antelope-style LEB128 variable-length u32 to `out`.
 pub fn write_varuint32(out: &mut Vec<u8>, mut v: u32) {
     loop {
         let b = (v & 0x7F) as u8;
@@ -170,7 +185,7 @@ pub fn sign_k1_canonical(sk: &SecretKey, digest: &[u8; 32]) -> Result<String, An
     Err(AntelopeError::Signing("no canonical signature after 100 tries"))
 }
 
-// Re-export for tests / callers
+/// Re-export of [`secp256k1::SecretKey`] under a Telos-specific alias, for tests / callers.
 pub use secp256k1::SecretKey as Secp256k1SecretKey;
 
 // --- Action data serialization for eosio.evm::raw -------------------------
@@ -200,24 +215,40 @@ pub fn serialize_raw_action_data(
 
 // --- Packed transaction ---------------------------------------------------
 
+/// An Antelope action in its binary-packable form.
 pub struct PackedAction {
+    /// Contract account (name-encoded as u64) the action targets.
     pub account: u64,
+    /// Action name (name-encoded as u64).
     pub name: u64,
+    /// Authorization list as `(actor, permission)` pairs, both name-encoded.
     pub authorization: Vec<(u64, u64)>, // (actor, permission)
+    /// Action data, serialized using the contract's ABI.
     pub data: Vec<u8>,
 }
 
+/// An Antelope transaction in its binary-packable form (no context-free actions, no
+/// transaction-extensions).
 pub struct PackedTransaction {
+    /// Absolute expiration timestamp, seconds since the Unix epoch.
     pub expiration: u32,
+    /// Low 16 bits of the TAPOS reference block number.
     pub ref_block_num: u16,
+    /// Bytes 8..12 of the TAPOS reference block id, interpreted little-endian.
     pub ref_block_prefix: u32,
+    /// Maximum net usage, in 8-byte words; 0 means "let nodeos choose".
     pub max_net_usage_words: u32,
+    /// Maximum CPU usage in milliseconds; 0 means "let nodeos choose".
     pub max_cpu_usage_ms: u8,
+    /// Optional deferred-delay, in seconds.
     pub delay_sec: u32,
+    /// Ordered list of actions to execute atomically.
     pub actions: Vec<PackedAction>,
 }
 
 impl PackedTransaction {
+    /// Serialize `self` using Antelope's `packed_transaction` binary format (no context-free
+    /// actions, no transaction extensions).
     pub fn serialize(&self) -> Vec<u8> {
         let mut out = Vec::new();
         out.extend_from_slice(&self.expiration.to_le_bytes());
@@ -249,6 +280,7 @@ impl PackedTransaction {
 
 // --- TAPOS helpers --------------------------------------------------------
 
+/// Extract `ref_block_num` from a block height (low 16 bits).
 pub fn ref_block_num(block_num: u32) -> u16 {
     (block_num & 0xFFFF) as u16
 }
@@ -259,6 +291,7 @@ pub fn ref_block_prefix(block_id: &B256) -> u32 {
     u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]])
 }
 
+/// Return a Unix-epoch timestamp `seconds` in the future.
 pub fn now_plus(seconds: u32) -> u32 {
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) as u32;
     now + seconds
