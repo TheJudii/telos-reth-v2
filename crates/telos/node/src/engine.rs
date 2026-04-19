@@ -1,4 +1,5 @@
-//! Telos engine validator - overrides block hash validation for legacy consensus client compatibility.
+//! Telos engine validator - overrides block hash validation for legacy consensus client
+//! compatibility.
 //!
 //! The Telos consensus client (alloy 0.3.x) computes block_hash with base_fee_per_gas=None
 //! but sends a non-zero base_fee_per_gas in the ExecutionPayloadV1. Reth v1.11.x recomputes
@@ -95,16 +96,20 @@ where
         &self,
         payload: ExecutionData,
     ) -> Result<RecoveredBlock<Self::Block>, NewPayloadError> {
-        let sealed_block = <TelosEngineValidator<ChainSpec> as PayloadValidator<Types>>::convert_payload_to_block(self, payload)?;
+        let sealed_block =
+            <TelosEngineValidator<ChainSpec> as PayloadValidator<Types>>::convert_payload_to_block(
+                self, payload,
+            )?;
 
         // Telos: fallback for system transactions with non-standard signatures
         // Use Address::ZERO for any tx that fails ECDSA recovery
         let hash = sealed_block.hash();
         let (sealed_header, body) = sealed_block.split_sealed_header_body();
-        let mut senders: Vec<alloy_primitives::Address> = Vec::with_capacity(body.transactions.len());
+        let mut senders: Vec<alloy_primitives::Address> =
+            Vec::with_capacity(body.transactions.len());
         for tx in &body.transactions {
-            let sender: alloy_primitives::Address = tx.recover_signer()
-                .unwrap_or(alloy_primitives::Address::ZERO);
+            let sender: alloy_primitives::Address =
+                tx.recover_signer().unwrap_or(alloy_primitives::Address::ZERO);
             senders.push(sender);
         }
         let header = sealed_header.unseal();
@@ -136,10 +141,13 @@ where
         version: EngineApiMessageVersion,
         attributes: &EthPayloadAttributes,
     ) -> Result<(), EngineObjectValidationError> {
-        validate_version_specific_fields::<ExecutionData, EthPayloadAttributes, _>(&self.chain_spec, version, PayloadOrAttributes::from(attributes))
+        validate_version_specific_fields::<ExecutionData, EthPayloadAttributes, _>(
+            &self.chain_spec,
+            version,
+            PayloadOrAttributes::from(attributes),
+        )
     }
 }
-
 
 // ---------------------------------------------------------------------------
 // Builder wiring: TelosEngineValidatorBuilder
@@ -160,14 +168,11 @@ pub struct TelosEngineValidatorBuilder;
 impl<Node, Types> PayloadValidatorBuilder<Node> for TelosEngineValidatorBuilder
 where
     Types: NodeTypes<
-        ChainSpec: reth_chainspec::Hardforks
-                       + reth_chainspec::EthereumHardforks
-                       + Clone
-                       + 'static,
+        ChainSpec: reth_chainspec::Hardforks + reth_chainspec::EthereumHardforks + Clone + 'static,
         Payload: reth_engine_primitives::EngineTypes<ExecutionData = ExecutionData>
                      + reth_payload_primitives::PayloadTypes<
-                         PayloadAttributes = reth_ethereum_engine_primitives::EthPayloadAttributes,
-                     >,
+            PayloadAttributes = reth_ethereum_engine_primitives::EthPayloadAttributes,
+        >,
         Primitives = reth_ethereum_primitives::EthPrimitives,
     >,
     Node: FullNodeComponents<Types = Types>,
