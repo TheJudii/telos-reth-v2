@@ -1,3 +1,4 @@
+//! Telos-reth binary entrypoint.
 #![allow(missing_docs)]
 
 #[global_allocator]
