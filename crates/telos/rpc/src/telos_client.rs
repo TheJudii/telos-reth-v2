@@ -102,7 +102,7 @@ impl TelosClient {
     ///
     /// 1. Fetch `get_info` for `chain_id` and a LIB block for TAPOS.
     /// 2. Build the action + packed transaction.
-    /// 3. sha256(chain_id || packed_trx || zero_cfa_hash) → digest.
+    /// 3. sha256(`chain_id` || `packed_trx` || `zero_cfa_hash`) → digest.
     /// 4. K1 canonical sign.
     /// 5. POST to `/v1/chain/send_transaction2`.
     pub async fn send_to_telos(&self, tx: &[u8]) -> Result<(), EthApiError> {

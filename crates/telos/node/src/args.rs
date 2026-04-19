@@ -7,7 +7,7 @@ use reth_telos_rpc::telos_client::TelosClientArgs;
 #[derive(Debug, Clone, PartialEq, Eq, clap::Args)]
 #[clap(next_help_heading = "Telos")]
 pub struct TelosArgs {
-    /// TelosZero endpoint to use for API calls (send_transaction, get gas price from table)
+    /// `TelosZero` endpoint to use for API calls (`send_transaction`, get gas price from table)
     #[arg(long = "telos.telos_endpoint", value_name = "HTTP_URL")]
     pub telos_endpoint: Option<String>,
 
@@ -41,7 +41,7 @@ pub struct TelosArgs {
     #[arg(long = "telos.trust_consensus", default_value_t = true, action = clap::ArgAction::Set)]
     pub trust_consensus: bool,
 
-    /// Build EVM state while keeping trust_consensus enabled. Executes transactions and builds
+    /// Build EVM state while keeping `trust_consensus` enabled. Executes transactions and builds
     /// state without validating state roots, allowing hybrid mode for historical block
     /// analysis.
 
@@ -67,7 +67,7 @@ impl Default for TelosArgs {
 
 impl From<TelosArgs> for TelosClientArgs {
     fn from(args: TelosArgs) -> Self {
-        TelosClientArgs {
+        Self {
             telos_endpoint: args.telos_endpoint,
             signer_account: args.signer_account,
             signer_permission: args.signer_permission,
