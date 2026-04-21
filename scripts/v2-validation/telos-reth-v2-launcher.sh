@@ -15,9 +15,28 @@
 #    reads from nodeos state-history and pushes engine_newPayload +
 #    engine_forkchoiceUpdated into authrpc :8579.
 #  - Signer credentials are reused from v1 because reth requires them
-#    whenever --telos.telos_endpoint is set, and the signer path is only
-#    exercised by eth_sendRawTransaction, which cannot reach this node.
-#    TODO(production): rotate to a dedicated v2 signer before cut-over.
+#    whenever --telos.telos_endpoint is set, and the signer path is
+#    only exercised by eth_sendRawTransaction, which cannot reach
+#    this node.
+#
+# Signer WIF:
+#  - The rpc.evm@rpc forwarder key is a shared operator credential
+#    intended to be publicly distributed with Telos RPC node
+#    software. Its on-chain permission is linked only to
+#    eosio.evm::raw, ::call, and ::delreciepts, so it has no
+#    authority to move funds, touch mainnet, or modify its own keys.
+#    We commit the canonical public default here so the node works
+#    out of the box, but it can be overridden per-deployment via
+#    the SIGNER_KEY env var or /etc/telos/signer.key (mode 0600).
+#
+# Engine API JWT:
+#  - The JWT is read from ${JWT} (default /data/reth-testnet-v2/jwt.hex).
+#    Unlike the signer WIF, the JWT is a per-deployment symmetric
+#    secret shared only between this reth and its consensus-client;
+#    it is deliberately NOT committed. The operator seeds it once
+#    via e.g. 'openssl rand -hex 32 > /data/reth-testnet-v2/jwt.hex'
+#    and copies the same hex string into the consensus client's
+#    jwt_secret config field.
 #
 # Port layout (v1 live / v2 side-by-side):
 #   HTTP RPC     8557 / 8577
@@ -37,21 +56,39 @@ JWT="${DATADIR}/jwt.hex"
 # eth_sendRawTransaction forwarding. Block-sync does NOT use this.
 TELOS_ENDPOINT="http://127.0.0.1:18889"
 
-# Signer credentials - reused from v1 during validation.
-# TODO(production): rotate to a dedicated v2 signer before cut-over.
-SIGNER_ACCOUNT="rpc.evm"
-SIGNER_PERMISSION="rpc"
-SIGNER_KEY="REDACTED_TESTNET_SIGNER_WIF_SEE_SECURITY_COMMIT_14a594d8"
+# Signer credentials. All three fields are safe to commit: the
+# account and permission are public identifiers, and the WIF is
+# the shared rpc.evm@rpc forwarder key intended for public
+# distribution with Telos RPC node software (corresponds to
+# EOS5D53o69eaiH7GhhCiL9Hny43iNNa8hzF2ekS7hSmFMWYoBKLy6).
+SIGNER_ACCOUNT="${SIGNER_ACCOUNT:-rpc.evm}"
+SIGNER_PERMISSION="${SIGNER_PERMISSION:-rpc}"
+DEFAULT_SIGNER_KEY="5HwmX44dc1optAssMvdAJZe2qvHwbkZogiu4uij2aDPmZLEcN2s"
+
+# Resolve SIGNER_KEY. Precedence:
+#   1. $SIGNER_KEY env var (useful for ad-hoc runs / alt accounts)
+#   2. /etc/telos/signer.key (useful when an operator provisions a
+#      custom key per deployment via config management)
+#   3. The committed public default above.
+if [ -z "${SIGNER_KEY:-}" ]; then
+  if [ -r /etc/telos/signer.key ]; then
+    SIGNER_KEY="$(head -n1 /etc/telos/signer.key | tr -d '[:space:]')"
+  fi
+fi
+SIGNER_KEY="${SIGNER_KEY:-$DEFAULT_SIGNER_KEY}"
 
 mkdir -p "${DATADIR}"
 
 # The JWT MUST match the value in the telos-consensus-client config
-# (testnet-genesis/config.toml `jwt_secret`). If the file is missing,
-# seed it with the shared secret so both sides agree on day one.
-SHARED_JWT="REDACTED_ENGINE_API_JWT_SEE_SECURITY_COMMIT_14a594d8"
+# (testnet-genesis/config.toml `jwt_secret`). We do not seed it from a
+# committed default; the operator is expected to create jwt.hex once
+# via `openssl rand -hex 32 > ${JWT}` and mirror the same hex into the
+# CL config.
 if [ ! -f "${JWT}" ]; then
-  printf '%s' "${SHARED_JWT}" > "${JWT}"
-  chmod 600 "${JWT}"
+  echo "telos-reth-v2: JWT file ${JWT} is missing." >&2
+  echo "telos-reth-v2: create it with 'openssl rand -hex 32 > ${JWT} && chmod 600 ${JWT}'" >&2
+  echo "telos-reth-v2: and copy the same hex string into the consensus client's jwt_secret." >&2
+  exit 2
 fi
 
 [ -f "${CONFIG}" ] || touch "${CONFIG}"

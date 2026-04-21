@@ -8,8 +8,11 @@
 # engine_forkchoiceUpdated).
 #
 # The jwt_secret below MUST match the bytes of
-# /data/reth-testnet-v2/jwt.hex on disk. The launcher seeds jwt.hex
-# with this exact value when the file is missing.
+# /data/reth-testnet-v2/jwt.hex on disk. Generate a fresh secret with
+#     openssl rand -hex 32
+# write that value into /data/reth-testnet-v2/jwt.hex (chmod 600), and
+# paste the same hex string into the jwt_secret field here before
+# starting the service. Do NOT commit the resulting value.
 #
 # prev_hash is the canonical Telos EVM testnet genesis hash
 # (block 0). If it doesn't match the hash reth reports for block 0,
@@ -19,7 +22,8 @@ log_level = "info"
 chain_id = 41
 prev_hash = "0xb25034033c9ca7a40e879ddcc29cf69071a22df06688b5fe8cc2d68b4e0528f9"
 execution_endpoint = "http://localhost:8579"
-jwt_secret = "REDACTED_ENGINE_API_JWT_SEE_SECURITY_COMMIT_14a594d8"
+# REPLACE BEFORE RUNNING: 64-character hex JWT secret shared with reth.
+jwt_secret = "REPLACE_WITH_32_BYTE_HEX_JWT_SECRET_SHARED_WITH_RETH_V2"
 evm_start_block = 1
 evm_deploy_block = 137430500
 ship_endpoint = "ws://localhost:18081"

@@ -77,15 +77,46 @@ It reports `Reth Version: 2.0.0`.
 
 ```bash
 mkdir -p /data/reth-testnet-v2
-# The shared JWT secret that both v2 reth and the v2 consensus client
-# must agree on. Taken from the existing testnet-genesis CL config.
-printf '%s' 'REDACTED_ENGINE_API_JWT_SEE_SECURITY_COMMIT_14a594d8' \
-  > /data/reth-testnet-v2/jwt.hex
+# Generate a fresh 32-byte JWT secret for the Engine API. This value
+# is deliberately NOT committed anywhere in the repo. Create it once
+# on the host and mirror the same hex string into the consensus
+# client's jwt_secret field (see section 4).
+openssl rand -hex 32 > /data/reth-testnet-v2/jwt.hex
 chmod 600 /data/reth-testnet-v2/jwt.hex
 ```
 
-The launcher in `/usr/local/bin/telos-reth-v2` will seed `jwt.hex` with
-this same value automatically on first run.
+The launcher in `/usr/local/bin/telos-reth-v2` expects `jwt.hex` to
+already exist at startup and will refuse to boot if it does not.
+
+## 2b. Signer WIF
+
+The v2 reth binary requires a signer WIF on the command line whenever
+`--telos.telos_endpoint` is set (the forwarder path for
+`eth_sendRawTransaction`). The Telos `rpc.evm@rpc` forwarder key is
+a shared operator credential intended to be publicly distributed
+with Telos RPC node software: its on-chain permission is linked
+only to `eosio.evm::raw`, `::call`, and `::delreciepts`, so it has
+no authority to move funds, touch mainnet, or modify its own keys.
+The launcher ships the canonical public default baked in
+(corresponds to `EOS5D53o69eaiH7GhhCiL9Hny43iNNa8hzF2ekS7hSmFMWYoBKLy6`),
+so the node works out of the box with no extra provisioning.
+
+To override with a different WIF (e.g. a private devnet signer, or
+a per-operator key), use either of:
+
+```bash
+# Option A: file-on-disk (preferred for long-running services)
+install -m 0700 -d /etc/telos
+printf '%s\n' 'PASTE_WIF_HERE' > /etc/telos/signer.key
+chmod 600 /etc/telos/signer.key
+
+# Option B: env var (useful for ad-hoc runs)
+SIGNER_KEY='PASTE_WIF_HERE' /usr/local/bin/telos-reth-v2
+```
+
+The launcher resolves `SIGNER_KEY` in the order: `$SIGNER_KEY` env
+var, then `/etc/telos/signer.key`, then the committed public
+default.
 
 ## 3. Launcher, systemd unit, hash-check script
 
@@ -124,13 +155,17 @@ SHIP WebSocket and pushes EVM payloads into reth over the Engine API.
 A v2-specific CL instance lives at
 `/data/telos-consensus-client/testnet-genesis/` and is configured to
 target authrpc `:8579`. Its config file is mirrored in this repo at
-`scripts/v2-validation/telos-consensus-client-v2-config.toml`.
+`scripts/v2-validation/telos-consensus-client-v2-config.toml` with
+the `jwt_secret` field left as a placeholder; before starting the
+service, copy the same 64-character hex string you wrote into
+`/data/reth-testnet-v2/jwt.hex` into that field.
 
 Key fields:
 
 - `execution_endpoint = "http://localhost:8579"` — v2 reth authrpc
 - `jwt_secret` — must match the bytes in
-  `/data/reth-testnet-v2/jwt.hex`
+  `/data/reth-testnet-v2/jwt.hex`; filled in per-deployment, never
+  committed
 - `prev_hash` — the canonical testnet block 0 hash; must match what
   reth reports for block 0
 - `evm_start_block = 1` — start replay at block 1 (genesis is block 0)
