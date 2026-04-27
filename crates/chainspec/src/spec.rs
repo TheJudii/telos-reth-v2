@@ -83,7 +83,20 @@ pub fn make_genesis_header(genesis: &Genesis, hardforks: &ChainHardforks) -> Hea
         difficulty: genesis.difficulty,
         nonce: genesis.nonce.into(),
         extra_data: genesis.extra_data.clone(),
-        state_root: state_root_ref_unhashed(&genesis.alloc),
+        state_root: {
+            // #77: Telos genesis state_root override. When set, the header uses
+            // this value (typically the empty-trie placeholder
+            // 0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421
+            // matching canonical Telos blocks). Used when seeding state via
+            // chain-spec `alloc` for quick-sync nodes — the alloc data is
+            // inserted into MDBX but the header reports the canonical
+            // placeholder so genesis hash matches canonical. Only effective
+            // in combination with --telos.trust_consensus.
+            std::env::var("TELOS_GENESIS_STATE_ROOT")
+                .ok()
+                .and_then(|s| s.parse::<B256>().ok())
+                .unwrap_or_else(|| state_root_ref_unhashed(&genesis.alloc))
+        },
         timestamp: genesis.timestamp,
         mix_hash: genesis.mix_hash,
         beneficiary: genesis.coinbase,
