@@ -1,4 +1,4 @@
-use alloy_primitives::{Address, Bytes, U256};
+use alloy_primitives::{Address, Bytes, Log, U256};
 use serde::{Deserialize, Serialize};
 
 /// Telos EVM Account Table Row
@@ -31,6 +31,22 @@ pub struct TelosAccountStateTableRow {
     pub value: U256,
 }
 
+/// Receipt format as written by telos-consensus-client.
+///
+/// Matches the CL JSON:
+/// `{"tx_type": "Legacy", "success": true, "cumulative_gas_used": 21000, "logs": []}`
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TelosExtraFieldReceipt {
+    /// Transaction type as string ("Legacy", "Eip2930", "Eip1559", "Eip4844", "Eip7702")
+    pub tx_type: String,
+    /// Whether the transaction executed successfully
+    pub success: bool,
+    /// Cumulative gas used up to and including this transaction
+    pub cumulative_gas_used: u64,
+    /// Logs emitted by this transaction
+    pub logs: Vec<Log>,
+}
+
 /// Telos Engine API Extra Fields
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TelosEngineAPIExtraFields {
@@ -46,6 +62,6 @@ pub struct TelosEngineAPIExtraFields {
     pub new_addresses_using_create: Option<Vec<(u64, U256)>>,
     /// New addresses using `openwallet` action in block
     pub new_addresses_using_openwallet: Option<Vec<(u64, U256)>>,
-    /// Receipts produced by telos.evm contract (serialized)
-    pub receipts: Option<Vec<Vec<u8>>>,
+    /// Receipts produced by telos.evm contract (structured, from CL)
+    pub receipts: Option<Vec<TelosExtraFieldReceipt>>,
 }

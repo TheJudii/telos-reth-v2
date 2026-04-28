@@ -222,11 +222,21 @@ where
         provider: &F::Provider,
     ) -> ProviderResult<Option<BlockNumber>> {
         if let Some(block_hash) = self.block_hash {
-            Ok(Some(
-                provider
-                    .convert_hash_or_number(block_hash.into())?
-                    .ok_or_else(|| ProviderError::BlockHashNotFound(block_hash))?,
-            ))
+            match provider.convert_hash_or_number(block_hash.into())? {
+                Some(num) => Ok(Some(num)),
+                None => {
+                    if reth_telos_primitives_traits::trust_consensus() {
+                        tracing::warn!(
+                            target: "providers::overlay",
+                            %block_hash,
+                            "Telos: trust_consensus - overlay block hash not indexed, falling back to DB tip"
+                        );
+                        Ok(None)
+                    } else {
+                        Err(ProviderError::BlockHashNotFound(block_hash))
+                    }
+                }
+            }
         } else {
             Ok(None)
         }

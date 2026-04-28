@@ -749,10 +749,17 @@ where
             TreeOutcome::new(self.try_buffer_payload(payload)?)
         };
 
-        // if the block is valid and it is the current sync target head, make it canonical
-        if outcome.outcome.is_valid() && self.is_sync_target_head(block_hash) {
-            // Only create the canonical event if this block isn't already the canonical head
-            if self.state.tree_state.canonical_block_hash() != block_hash {
+        // Telos: when trust_consensus is enabled, every valid block from the
+        // consensus client should become canonical (the CL is the source of truth).
+        // Otherwise: only canonicalize when the block matches the sync target head.
+        if outcome.outcome.is_valid() {
+            let should_make_canonical = if reth_telos_primitives_traits::trust_consensus() {
+                self.state.tree_state.canonical_block_hash() != block_hash
+            } else {
+                self.is_sync_target_head(block_hash) &&
+                    self.state.tree_state.canonical_block_hash() != block_hash
+            };
+            if should_make_canonical {
                 outcome = outcome.with_event(TreeEvent::TreeAction(TreeAction::MakeCanonical {
                     sync_target_head: block_hash,
                 }));
@@ -856,6 +863,16 @@ where
             self.metrics.engine.executed_new_block_cache_miss.increment(1);
             return Ok(None)
         };
+
+        // Telos: when `trust_consensus` is enabled, the CL is the source of truth for
+        // block linkage and blocks may arrive with parent hashes that do not connect
+        // back to our local canonical head (which typically stays at genesis because
+        // we never persisted the long prefix of prior EVM history). Treat every
+        // accepted new head as a direct single-block commit extension so that
+        // `make_canonical` can advance the canonical head one block at a time.
+        if reth_telos_primitives_traits::trust_consensus() {
+            return Ok(Some(NewCanonicalChain::Commit { new: vec![new_head_block.clone()] }))
+        }
 
         let new_head_number = new_head_block.recovered_block().number();
         let mut current_canonical_number = self.state.tree_state.current_canonical_head.number;
@@ -1327,6 +1344,19 @@ where
         };
 
         let target = self.lowest_buffered_ancestor_or(target);
+
+        if reth_telos_primitives_traits::trust_consensus() {
+            // Telos: skip P2P download, blocks come from consensus client only.
+            trace!(
+                target: "engine::tree",
+                %target,
+                "Telos: skipping P2P download, waiting for consensus client"
+            );
+            return Ok(TreeOutcome::new(OnForkChoiceUpdated::valid(PayloadStatus::from_status(
+                PayloadStatusEnum::Syncing,
+            ))))
+        }
+
         trace!(target: "engine::tree", %target, "downloading missing block");
 
         Ok(TreeOutcome::new(OnForkChoiceUpdated::valid(PayloadStatus::from_status(
@@ -2552,6 +2582,14 @@ where
     /// This method tries to detect whether on-disk and in-memory states have diverged. It might
     /// happen if a reorg is happening while we are persisting a block.
     fn find_disk_reorg(&self) -> ProviderResult<Option<u64>> {
+        // Under trust_consensus, the CL is the source of truth for the canonical chain.
+        // We may be starting mid-chain where the historical parent hashes are not in our
+        // Headers table, which makes the ancestor walk below fail with BlockHashNotFound.
+        // Disk reorg detection is meaningless in that mode, so just skip it.
+        if reth_telos_primitives_traits::trust_consensus() {
+            return Ok(None);
+        }
+
         let mut canonical = self.state.tree_state.current_canonical_head;
         let mut persisted = self.persistence_state.last_persisted_block;
 
@@ -3278,6 +3316,47 @@ where
             // For persisted blocks, we create a builder that will fetch state directly from the
             // database
             return Ok(Some(StateProviderBuilder::new(self.provider.clone(), hash, None)))
+        }
+
+        // Telos: Fallback when parent hash isn't indexed in the DB.
+        // Handles (1) init-state dummy blocks with B256::ZERO hashes,
+        // (2) blocks persisted by the engine tree that don't get hash-indexed, and
+        // (3) a fresh start (best_block == 0) — use genesis state.
+        //
+        // Gated by `trust_consensus`: upstream reth (and its unit tests) must keep the
+        // original `Ok(None)` semantics so unknown-parent blocks get buffered by the
+        // engine tree instead of attached to an unrelated head. Attaching them causes
+        // deeper lookups to surface as `Provider(HeaderNotFound)`, which is the root
+        // cause of the `test_tree_persist_block_batch` and
+        // `test_engine_tree_live_sync_transition_required_blocks_requested` regressions.
+        if reth_telos_primitives_traits::trust_consensus() &&
+            let Ok(best_block) = self.provider.best_block_number()
+        {
+            if best_block > 0 {
+                debug!(
+                    target: "engine::tree",
+                    %hash,
+                    %best_block,
+                    "Telos: parent hash not found, using best persisted block state"
+                );
+                if let Some(header) = self.provider.sealed_header(best_block).ok().flatten() {
+                    return Ok(Some(StateProviderBuilder::new(
+                        self.provider.clone(),
+                        header.hash(),
+                        None,
+                    )))
+                }
+            } else {
+                // Fresh start with trust_consensus: use genesis state (block 0).
+                // The consensus client provides execution results, so we don't need
+                // accurate parent state - just a valid state provider to attach blocks to.
+                debug!(
+                    target: "engine::tree",
+                    %hash,
+                    "Telos: trust_consensus fresh start, using genesis state"
+                );
+                return Ok(Some(StateProviderBuilder::new(self.provider.clone(), hash, None)))
+            }
         }
 
         debug!(target: "engine::tree", %hash, "no canonical state found for block");

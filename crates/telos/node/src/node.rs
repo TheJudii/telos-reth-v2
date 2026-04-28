@@ -4,7 +4,7 @@
 //! which are built on top of the standard Ethereum node components
 //! with Telos-specific extensions.
 
-use crate::args::TelosArgs;
+use crate::{args::TelosArgs, engine::TelosEngineValidatorBuilder};
 use alloy_rpc_types_engine::ExecutionData;
 use reth_chainspec::{ChainSpec, EthChainSpec, EthereumHardforks, Hardforks};
 use reth_engine_local::LocalPayloadAttributesBuilder;
@@ -14,18 +14,16 @@ use reth_ethereum_primitives::EthPrimitives;
 use reth_evm::{
     eth::spec::EthExecutorSpec, ConfigureEvm, EvmFactory, EvmFactoryFor, NextBlockEnvAttributes,
 };
-use reth_node_api::{
-    AddOnsContext, FullNodeComponents, NodeAddOns, PayloadAttributesBuilder, PrimitivesTy, TxTy,
-};
+use reth_node_api::{FullNodeComponents, NodeAddOns, PayloadAttributesBuilder};
 use reth_node_builder::{
     components::{BasicPayloadServiceBuilder, ComponentsBuilder},
     node::{FullNodeTypes, NodeTypes},
     rpc::{
         BasicEngineApiBuilder, BasicEngineValidatorBuilder, EngineApiBuilder, EngineValidatorAddOn,
-        EngineValidatorBuilder, EthApiBuilder, EthApiCtx, Identity, PayloadValidatorBuilder,
-        RethRpcAddOns, RpcAddOns, RpcHandle,
+        EngineValidatorBuilder, EthApiBuilder, Identity, PayloadValidatorBuilder, RethRpcAddOns,
+        RpcAddOns, RpcHandle,
     },
-    BuilderContext, DebugNode, Node, NodeAdapter,
+    DebugNode, Node, NodeAdapter,
 };
 use reth_node_ethereum::{
     node::{
@@ -37,17 +35,13 @@ use reth_node_ethereum::{
 };
 use reth_payload_primitives::PayloadTypes;
 use reth_provider::{providers::ProviderFactoryBuilder, EthStorage};
-use reth_rpc::{eth::core::EthApiFor, ValidationApi};
+use reth_rpc::ValidationApi;
 use reth_rpc_api::servers::BlockSubmissionValidationApiServer;
 use reth_rpc_builder::{config::RethRpcServerConfig, middleware::RethRpcMiddleware};
-use reth_rpc_eth_api::helpers::{
-    config::{EthConfigApiServer, EthConfigHandler},
-    pending_block::BuildPendingEnv,
-};
+use reth_rpc_eth_api::helpers::config::{EthConfigApiServer, EthConfigHandler};
 use reth_rpc_eth_types::{error::FromEvmError, EthApiError};
 use reth_rpc_server_types::RethRpcModule;
 use reth_tracing::tracing::info;
-use reth_transaction_pool::{PoolTransaction, TransactionPool};
 use revm::context::TxEnv;
 use std::sync::Arc;
 
@@ -64,7 +58,7 @@ pub struct TelosNode {
 
 impl TelosNode {
     /// Creates a new instance of the Telos node type.
-    pub fn new(args: TelosArgs) -> Self {
+    pub const fn new(args: TelosArgs) -> Self {
         Self { args }
     }
 
@@ -153,6 +147,29 @@ where
         Self::new(RpcAddOns::new(
             EthereumEthApiBuilder::default(),
             EthereumEngineValidatorBuilder::default(),
+            BasicEngineApiBuilder::default(),
+            BasicEngineValidatorBuilder::default(),
+            Default::default(),
+        ))
+    }
+}
+
+impl<N> Default for TelosAddOns<N, EthereumEthApiBuilder, TelosEngineValidatorBuilder>
+where
+    N: FullNodeComponents<
+        Types: NodeTypes<
+            ChainSpec: reth_chainspec::Hardforks + EthereumHardforks + Clone + 'static,
+            Payload: EngineTypes<ExecutionData = ExecutionData>
+                         + PayloadTypes<PayloadAttributes = EthPayloadAttributes>,
+            Primitives = EthPrimitives,
+        >,
+    >,
+    EthereumEthApiBuilder: EthApiBuilder<N>,
+{
+    fn default() -> Self {
+        Self::new(RpcAddOns::new(
+            EthereumEthApiBuilder::default(),
+            TelosEngineValidatorBuilder,
             BasicEngineApiBuilder::default(),
             BasicEngineValidatorBuilder::default(),
             Default::default(),
@@ -280,8 +297,7 @@ where
         EthereumConsensusBuilder,
     >;
 
-    type AddOns =
-        TelosAddOns<NodeAdapter<N>, EthereumEthApiBuilder, EthereumEngineValidatorBuilder>;
+    type AddOns = TelosAddOns<NodeAdapter<N>, EthereumEthApiBuilder, TelosEngineValidatorBuilder>;
 
     fn components_builder(&self) -> Self::ComponentsBuilder {
         Self::components()

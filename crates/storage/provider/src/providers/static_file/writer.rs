@@ -755,6 +755,61 @@ impl<N: NodePrimitives> StaticFileProviderRW<N> {
     pub fn increment_block(&mut self, expected_block_number: BlockNumber) -> ProviderResult<()> {
         let segment = self.writer.user_header().segment();
 
+        // Telos: under `trust_consensus` the consensus client drives block
+        // insertion via the Engine API and may start mid-chain — the first
+        // block from the CL can be arbitrarily far ahead of whatever we have
+        // locally (typically just genesis). In that case the default
+        // `check_next_block_number` path fails with `UnexpectedStaticFileBlockNumber`.
+        // Instead, commit the current file and re-seat the writer onto a
+        // fresh static file whose `expected_block_start` is the incoming
+        // block, so subsequent writes land at row 0 of the new file.
+        if reth_telos_primitives_traits::trust_consensus() &&
+            expected_block_number != self.next_block_number()
+        {
+            tracing::warn!(
+                target: "providers::static_file",
+                ?segment,
+                expected_block_number,
+                current_next = self.next_block_number(),
+                "Telos: trust_consensus - jumping static file writer to mid-chain block"
+            );
+
+            // Persist what we have (typically just the genesis block).
+            self.commit()?;
+
+            // Open (or create) the static file whose fixed range contains the
+            // target block. This returns a writer over
+            // `find_fixed_range(expected_block_number, blocks_per_file)`.
+            let (writer, data_path) = Self::open(
+                segment,
+                expected_block_number,
+                self.reader.clone(),
+                self.metrics.clone(),
+            )?;
+            self.writer = writer;
+            self.data_path = data_path.clone();
+
+            // Reset the user header for the new file and then slide
+            // `expected_block_start` forward to the incoming block so that
+            // `SegmentHeader::increment_block()` initializes
+            // `block_range = (expected_block_number, expected_block_number)`
+            // and row index 0 maps to `expected_block_number`.
+            *self.writer.user_header_mut() = SegmentHeader::new(
+                self.reader().find_fixed_range(segment, expected_block_number),
+                None,
+                None,
+                segment,
+            );
+            self.writer.user_header_mut().set_expected_block_start(expected_block_number);
+
+            if segment.is_change_based() {
+                let csoff_path = data_path.with_extension("csoff");
+                self.changeset_offsets =
+                    Some(ChangesetOffsetWriter::new(&csoff_path, 0).map_err(ProviderError::other)?);
+                self.current_changeset_offset = None;
+            }
+        }
+
         self.check_next_block_number(expected_block_number)?;
 
         let start = Instant::now();
@@ -1073,14 +1128,24 @@ impl<N: NodePrimitives> StaticFileProviderRW<N> {
     ) -> ProviderResult<()> {
         if let Some(range) = self.writer.user_header().tx_range() {
             let next_tx = range.end() + 1;
-            if next_tx != tx_num {
+            if next_tx == tx_num {
+                self.writer.user_header_mut().increment_tx();
+            } else if reth_telos_primitives_traits::trust_consensus() {
+                // Telos: genesis transactions may have pre-populated the transactions
+                // static file with different tx numbers than the receipts file.
+                tracing::warn!(
+                    "Telos: static file tx number mismatch (expected {}, got {}), updating range",
+                    next_tx,
+                    tx_num
+                );
+                self.writer.user_header_mut().set_tx_range(tx_num, tx_num);
+            } else {
                 return Err(ProviderError::UnexpectedStaticFileTxNumber(
                     self.writer.user_header().segment(),
                     tx_num,
                     next_tx,
                 ))
             }
-            self.writer.user_header_mut().increment_tx();
         } else {
             self.writer.user_header_mut().set_tx_range(tx_num, tx_num);
         }

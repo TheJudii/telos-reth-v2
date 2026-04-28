@@ -29,6 +29,7 @@ reth-exex.workspace = true
 reth-fs-util.workspace = true
 reth-network-p2p.workspace = true
 reth-primitives-traits.workspace = true
+reth-telos-primitives-traits = { workspace = true, features = ["std"] }
 reth-provider.workspace = true
 reth-execution-types.workspace = true
 reth-ethereum-primitives = { workspace = true, optional = true }

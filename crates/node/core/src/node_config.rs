@@ -419,13 +419,21 @@ impl<ChainSpec> NodeConfig<ChainSpec> {
 
         let head = provider.get_stage_checkpoint(StageId::Finish)?.unwrap_or_default().block_number;
 
-        let header = provider
-            .header_by_number(head)?
-            .expect("the header for the latest block is missing, database is corrupt");
-
-        let hash = provider
-            .block_hash(head)?
-            .expect("the hash for the latest block is missing, database is corrupt");
+        let (head, header, hash) = {
+            let mut h = head;
+            loop {
+                if let (Some(hdr), Some(bh)) =
+                    (provider.header_by_number(h)?, provider.block_hash(h)?)
+                {
+                    break (h, hdr, bh);
+                }
+                if reth_telos_primitives_traits::trust_consensus() && h > 0 {
+                    h = h.saturating_sub(500);
+                    continue;
+                }
+                panic!("the header for block {} is missing, database is corrupt", h);
+            }
+        };
 
         Ok(Head {
             number: head,

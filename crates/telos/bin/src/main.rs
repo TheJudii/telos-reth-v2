@@ -1,3 +1,4 @@
+//! Telos-reth binary entrypoint.
 #![allow(missing_docs)]
 
 #[global_allocator]
@@ -11,7 +12,7 @@ use clap::Parser;
 use reth::cli::Cli;
 use reth_node_telos::{TelosArgs, TelosChainSpecParser, TelosNode};
 use reth_telos_rpc::TelosClient;
-use tracing::info;
+use tracing::{info, warn};
 
 fn main() {
     reth_cli_util::sigsegv_handler::install();
@@ -25,18 +26,36 @@ fn main() {
         Cli::<TelosChainSpecParser, TelosArgs>::parse().run(async move |builder, telos_args| {
             info!(target: "reth::cli", "Launching Telos node");
 
+            // Set the global trust_consensus flag from CLI args.
+            // When true, reth skips state-root / receipt-root / gas verification
+            // and trusts the consensus client (telos-consensus-client) to drive
+            // execution. Required for Telos where real state lives in nodeos.
+            reth_telos_primitives_traits::set_trust_consensus(telos_args.trust_consensus);
+            reth_telos_primitives_traits::set_build_state(telos_args.build_state);
+            if telos_args.trust_consensus {
+                info!(target: "reth::cli", "Telos: trust_consensus enabled - trusting nodeos consensus for execution results");
+            }
+
             let telos_endpoint = telos_args.telos_endpoint.clone();
             let telos_client_args: reth_telos_rpc::telos_client::TelosClientArgs =
                 telos_args.clone().into();
 
             let handle = builder
                 .node(TelosNode::new(telos_args))
-                .extend_rpc_modules(move |_ctx| {
+                .extend_rpc_modules(move |ctx| {
                     if telos_endpoint.is_some() {
-                        info!(target: "reth::cli", "Telos native endpoint configured, transaction forwarding enabled");
-                        // The TelosClient is available for RPC extensions that need
-                        // to forward transactions to the native chain
-                        let _client = TelosClient::new(telos_client_args);
+                        info!(target: "reth::cli", "Telos native endpoint configured, installing tx forwarder");
+                        let client = TelosClient::new(telos_client_args);
+                        match client.build_forwarder_module() {
+                            Ok(module) => {
+                                match ctx.modules.replace_configured(module) {
+                                    Ok(true) => info!(target: "reth::cli", "Replaced eth_sendRawTransaction with Telos forwarder"),
+                                    Ok(false) => warn!(target: "reth::cli", "Forwarder module registered but replace_configured reported false"),
+                                    Err(e) => warn!(target: "reth::cli", "Failed to install forwarder: {e}"),
+                                }
+                            }
+                            Err(e) => warn!(target: "reth::cli", "Failed to build forwarder module: {e}"),
+                        }
                     }
                     Ok(())
                 })

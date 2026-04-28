@@ -25,15 +25,8 @@ pub static TELOS_TESTNET: once_cell::sync::Lazy<Arc<ChainSpec>> =
     });
 
 /// Chains supported by the Telos node, including standard Ethereum chains.
-pub const SUPPORTED_CHAINS: &[&str] = &[
-    "mainnet",
-    "sepolia",
-    "holesky",
-    "hoodi",
-    "dev",
-    "telos-mainnet",
-    "telos-testnet",
-];
+pub const SUPPORTED_CHAINS: &[&str] =
+    &["mainnet", "sepolia", "holesky", "hoodi", "dev", "telos-mainnet", "telos-testnet"];
 
 /// Clap value parser for [`ChainSpec`]s that includes Telos chains.
 pub fn telos_chain_value_parser(s: &str) -> eyre::Result<Arc<ChainSpec>, eyre::Error> {

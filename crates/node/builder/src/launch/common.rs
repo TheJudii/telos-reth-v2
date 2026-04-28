@@ -516,7 +516,13 @@ where
         // Check consistency between the database and static files, returning
         // the unwind targets for each storage layer if inconsistencies are
         // found.
-        let (rocksdb_unwind, static_file_unwind) = factory.check_consistency()?;
+        let (rocksdb_unwind, static_file_unwind) =
+            if reth_telos_primitives_traits::trust_consensus() {
+                tracing::warn!("Telos: skipping static file consistency check");
+                (None, None)
+            } else {
+                factory.check_consistency()?
+            };
 
         // Take the minimum block number to ensure all storage layers are consistent.
         let unwind_target = [rocksdb_unwind, static_file_unwind].into_iter().flatten().min();
