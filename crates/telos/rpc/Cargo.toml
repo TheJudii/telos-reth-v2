@@ -37,3 +37,7 @@ secp256k1 = { workspace = true }
 sha2 = "0.10"
 ripemd = "0.1"
 bs58 = "0.5"
+
+[[bin]]
+name = "antelope_conformance"
+path = "src/bin/antelope_conformance.rs"
