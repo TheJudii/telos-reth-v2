@@ -1,0 +1,22 @@
+[Unit]
+Description=Telos consensus-quick auto-heal daemon
+After=telos-consensus-quick.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/data/scripts/auto_heal_consensus_quick.sh
+Restart=on-failure
+RestartSec=30
+# If the script exits with code 3 (escalation), don't auto-restart — pager gets it.
+RestartPreventExitStatus=3
+# hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/log /var/lib/telos
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target

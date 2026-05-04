@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily timer for telos-snapshot.service
+Documentation=Runs telos-snapshot.sh at 04:00 UTC daily (low-traffic window). 30-60s of node downtime per snapshot.
+
+[Timer]
+# 04:00 UTC daily. Persistent so a missed run (e.g. host was rebooting) catches up.
+OnCalendar=*-*-* 04:00:00 UTC
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

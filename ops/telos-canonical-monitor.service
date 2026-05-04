@@ -1,0 +1,29 @@
+[Unit]
+Description=Telos canonical-comparison monitor (mainnet + testnet quick)
+Documentation=See CLIENT_CONTRACT_LIB_TRACKING.md and the source at /usr/local/bin/canonical-monitor.py
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 /usr/local/bin/canonical-monitor.py
+Restart=on-failure
+RestartSec=30
+# Don't auto-restart on a clean exit; we always loop forever, so a clean exit is unusual.
+RestartPreventExitStatus=0
+
+# hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/log /var/lib/telos
+LimitCORE=0
+
+# Resource caps
+MemoryHigh=128M
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target
