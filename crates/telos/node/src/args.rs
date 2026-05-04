@@ -72,6 +72,7 @@ impl From<TelosArgs> for TelosClientArgs {
             signer_account: args.signer_account,
             signer_permission: args.signer_permission,
             signer_key: args.signer_key,
+            gas_cache_seconds: args.gas_cache_seconds,
         }
     }
 }
