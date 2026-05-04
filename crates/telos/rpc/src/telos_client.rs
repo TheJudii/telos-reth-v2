@@ -1,8 +1,9 @@
 //! Telos native chain client for forwarding transactions.
 
-use std::{sync::Arc, time::Duration};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
-use alloy_primitives::{keccak256, Bytes, B256};
+use alloy_primitives::{keccak256, Bytes, B256, U256};
 use jsonrpsee::server::RpcModule;
 use jsonrpsee_types::{ErrorObject, ErrorObjectOwned};
 use reth_rpc_eth_types::EthApiError;
@@ -15,17 +16,27 @@ use crate::antelope::{
     sig_digest, sign_k1_canonical, wif_to_secret_key, PackedAction, PackedTransaction,
 };
 
+/// Default gas-price cache TTL (seconds) when `--telos.gas_cache_seconds` is not set.
+/// 8 seconds chosen because the eosio.evm config table is updated by an on-chain action
+/// at most once every few minutes; 8s gives sub-block freshness without hammering nodeos.
+const DEFAULT_GAS_CACHE_SECONDS: u32 = 8;
+
+/// `eth_maxPriorityFeePerGas` constant returned by the canonical Telos RPC.
+/// 1 gwei = 0x3b9aca00. Telos has no priority-fee market — transactions pay only
+/// `gas_price` from the eosio.evm config — but the canonical RPC returns 1 gwei
+/// to satisfy EIP-1559 wallets. We mirror that for parity.
+const TELOS_MAX_PRIORITY_FEE_PER_GAS_WEI: u64 = 1_000_000_000;
+
 /// Arguments for constructing a [`TelosClient`].
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TelosClientArgs {
-    /// HTTP endpoint for nodeos (e.g. `http://127.0.0.1:8888`).
     pub telos_endpoint: Option<String>,
-    /// Antelope account name that signs forwarded transactions (e.g. `rpc.evm`).
     pub signer_account: Option<String>,
-    /// Permission level used by the signer (e.g. `forward` or `active`).
     pub signer_permission: Option<String>,
-    /// WIF-encoded signer private key (`5K...` or `5J...`).
     pub signer_key: Option<String>,
+    /// Seconds to cache the gas-price reading from the `eosio.evm` config table.
+    /// Defaults to [`DEFAULT_GAS_CACHE_SECONDS`] when unset.
+    pub gas_cache_seconds: Option<u32>,
 }
 
 /// A client that forwards signed Ethereum transactions to the Telos native chain
@@ -46,6 +57,8 @@ struct TelosClientInner {
     action_name: u64,
     secret_key: SecretKey,
     http_client: reqwest::Client,
+    gas_cache_seconds: u32,
+    gas_price_cache: Mutex<Option<(Instant, U256)>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -55,15 +68,35 @@ struct GetInfoResponse {
     last_irreversible_block_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct GetTableRowsResponse {
+    rows: Vec<EvmConfigRow>,
+}
+
+/// Subset of the `eosio.evm` config-table row we care about. The contract
+/// stores `gas_price` as a hex-encoded `uint256` string (e.g. `"4c68cd444de"`)
+/// representing wei.
+#[derive(Debug, Deserialize)]
+struct EvmConfigRow {
+    gas_price: String,
+}
+
 impl TelosClient {
     /// Creates a new [`TelosClient`]. Panics on missing or malformed required args.
     pub fn new(args: TelosClientArgs) -> Self {
-        let endpoint = args.telos_endpoint.expect("telos_endpoint is required for TelosClient");
-        let signer_account_str =
-            args.signer_account.expect("signer_account is required for TelosClient");
-        let signer_permission_str =
-            args.signer_permission.expect("signer_permission is required for TelosClient");
-        let signer_key_str = args.signer_key.expect("signer_key is required for TelosClient");
+        let endpoint = args
+            .telos_endpoint
+            .expect("telos_endpoint is required for TelosClient");
+        let signer_account_str = args
+            .signer_account
+            .expect("signer_account is required for TelosClient");
+        let signer_permission_str = args
+            .signer_permission
+            .expect("signer_permission is required for TelosClient");
+        let signer_key_str = args
+            .signer_key
+            .expect("signer_key is required for TelosClient");
+        let gas_cache_seconds = args.gas_cache_seconds.unwrap_or(DEFAULT_GAS_CACHE_SECONDS);
 
         let signer_actor =
             name_to_u64(&signer_account_str).expect("invalid signer_account name encoding");
@@ -89,11 +122,12 @@ impl TelosClient {
                 action_name,
                 secret_key,
                 http_client,
+                gas_cache_seconds,
+                gas_price_cache: Mutex::new(None),
             }),
         }
     }
 
-    /// Returns the nodeos HTTP endpoint this client was configured with.
     pub fn endpoint(&self) -> &str {
         &self.inner.endpoint
     }
@@ -102,7 +136,7 @@ impl TelosClient {
     ///
     /// 1. Fetch `get_info` for `chain_id` and a LIB block for TAPOS.
     /// 2. Build the action + packed transaction.
-    /// 3. sha256(`chain_id` || `packed_trx` || `zero_cfa_hash`) → digest.
+    /// 3. sha256(chain_id || packed_trx || zero_cfa_hash) → digest.
     /// 4. K1 canonical sign.
     /// 5. POST to `/v1/chain/send_transaction2`.
     pub async fn send_to_telos(&self, tx: &[u8]) -> Result<(), EthApiError> {
@@ -196,24 +230,39 @@ impl TelosClient {
         let status = resp.status();
         if !status.is_success() {
             let text = resp.text().await.unwrap_or_default();
-            return Err(antelope::AntelopeError::Nodeos { status: status.as_u16(), body: text });
+            return Err(antelope::AntelopeError::Nodeos {
+                status: status.as_u16(),
+                body: text,
+            });
         }
         Ok(())
     }
 
-    /// Build a jsonrpsee RPC module that overrides `eth_sendRawTransaction` to
-    /// forward the raw transaction to Telos native via [`Self::send_to_telos`].
+    /// Build a jsonrpsee RPC module that overrides:
     ///
-    /// The handler decodes the raw bytes, computes the EVM transaction hash, and
-    /// returns it synchronously after the native submission succeeds. It does NOT
-    /// insert the transaction into reth's local pool — blocks produced by nodeos
-    /// flow back through the consensus client and will land the tx naturally.
+    /// - `eth_sendRawTransaction` — forwards the raw transaction to Telos native
+    ///   via [`send_to_telos`]. The handler decodes the raw bytes, computes the
+    ///   EVM transaction hash, and returns it synchronously after the native
+    ///   submission succeeds. It does NOT insert the transaction into reth's
+    ///   local pool — blocks produced by nodeos flow back through the consensus
+    ///   client and will land the tx naturally.
+    /// - `eth_gasPrice` — returns the canonical gas price from the `eosio.evm`
+    ///   config table on-chain (cached for `gas_cache_seconds`). Without this
+    ///   override, the default reth oracle samples recent block transactions and
+    ///   returns 0 on Telos because empty 0.5s blocks dominate the sample window.
+    ///   Wallets and SDKs depend on a non-zero value to construct legacy txs.
+    /// - `eth_maxPriorityFeePerGas` — returns 1 gwei to mirror canonical RPC.
+    ///   Telos has no priority-fee market; transactions pay only `gas_price` from
+    ///   the config table. EIP-1559 wallets nonetheless query this method and a
+    ///   0 reply makes them refuse to broadcast.
     pub fn build_forwarder_module(&self) -> Result<RpcModule<()>, ErrorObjectOwned> {
-        let client = self.clone();
         let mut module = RpcModule::new(());
+
+        // eth_sendRawTransaction — forward to Telos native.
+        let forward_client = self.clone();
         module
             .register_async_method("eth_sendRawTransaction", move |params, _ctx, _ext| {
-                let client = client.clone();
+                let client = forward_client.clone();
                 async move {
                     let (bytes,): (Bytes,) = params.parse().map_err(|e| {
                         ErrorObject::owned(
@@ -234,7 +283,97 @@ impl TelosClient {
             .map_err(|e| {
                 ErrorObject::owned(-32603, format!("register method: {e}"), None::<()>)
             })?;
+
+        // eth_gasPrice — read from eosio.evm config table on-chain (cached).
+        let gas_client = self.clone();
+        module
+            .register_async_method("eth_gasPrice", move |_params, _ctx, _ext| {
+                let client = gas_client.clone();
+                async move {
+                    match client.get_gas_price().await {
+                        Ok(price) => Ok::<U256, ErrorObject<'static>>(price),
+                        Err(err) => {
+                            warn!(target: "telos::gas", error = %err, "eth_gasPrice query failed");
+                            Err(ErrorObject::owned(
+                                -32603,
+                                format!("Telos gas price unavailable: {err}"),
+                                None::<()>,
+                            ))
+                        }
+                    }
+                }
+            })
+            .map_err(|e| {
+                ErrorObject::owned(-32603, format!("register method: {e}"), None::<()>)
+            })?;
+
+        // eth_maxPriorityFeePerGas — Telos has no priority-fee market; mirror canonical RPC.
+        module
+            .register_async_method(
+                "eth_maxPriorityFeePerGas",
+                |_params, _ctx, _ext| async move {
+                    Ok::<U256, ErrorObject<'static>>(U256::from(
+                        TELOS_MAX_PRIORITY_FEE_PER_GAS_WEI,
+                    ))
+                },
+            )
+            .map_err(|e| {
+                ErrorObject::owned(-32603, format!("register method: {e}"), None::<()>)
+            })?;
+
         Ok(module)
+    }
+
+    /// Returns the current Telos gas price in wei, sourced from the on-chain
+    /// `eosio.evm` config singleton table. Cached per the `gas_cache_seconds` arg.
+    ///
+    /// On a cache miss (first call, or TTL expired), POSTs `/v1/chain/get_table_rows`
+    /// with `code=eosio.evm scope=eosio.evm table=config json=true limit=1`. The
+    /// contract stores `gas_price` as a hex string (e.g. `"4c68cd444de"`) in wei.
+    pub async fn get_gas_price(&self) -> Result<U256, antelope::AntelopeError> {
+        // Fast path — return cached value if still fresh.
+        if let Some((fetched_at, price)) = *self.inner.gas_price_cache.lock().unwrap() {
+            if fetched_at.elapsed() < Duration::from_secs(self.inner.gas_cache_seconds as u64) {
+                return Ok(price);
+            }
+        }
+
+        // Cache miss — fetch from nodeos.
+        let url = format!("{}/v1/chain/get_table_rows", self.inner.endpoint);
+        let body = serde_json::json!({
+            "code": "eosio.evm",
+            "scope": "eosio.evm",
+            "table": "config",
+            "json": true,
+            "limit": 1,
+        });
+        let resp = self.inner.http_client.post(&url).json(&body).send().await?;
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(antelope::AntelopeError::Nodeos {
+                status: status.as_u16(),
+                body: text,
+            });
+        }
+        let parsed: GetTableRowsResponse = resp.json().await?;
+        let row = parsed.rows.first().ok_or_else(|| antelope::AntelopeError::Nodeos {
+            status: 200,
+            body: "eosio.evm config table returned no rows".to_string(),
+        })?;
+
+        let price = parse_evm_gas_price(&row.gas_price).ok_or_else(|| {
+            antelope::AntelopeError::Nodeos {
+                status: 200,
+                body: format!("malformed gas_price hex: {:?}", row.gas_price),
+            }
+        })?;
+
+        // Update the cache. Multiple writers racing to insert the same value is fine.
+        *self.inner.gas_price_cache.lock().unwrap() = Some((Instant::now(), price));
+
+        debug!(target: "telos::gas", price = %price, "refreshed eosio.evm gas_price");
+        Ok(price)
     }
 
     async fn get_info(&self) -> Result<GetInfoResponse, antelope::AntelopeError> {
@@ -243,9 +382,63 @@ impl TelosClient {
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
-            return Err(antelope::AntelopeError::Nodeos { status: status.as_u16(), body });
+            return Err(antelope::AntelopeError::Nodeos {
+                status: status.as_u16(),
+                body,
+            });
         }
         let info: GetInfoResponse = resp.json().await?;
         Ok(info)
+    }
+}
+
+/// Parses the `gas_price` field from an `eosio.evm` config row.
+///
+/// The field is a hex-encoded uint256 (with or without `0x` prefix), e.g.
+/// `"4c68cd444de"` for 5,250,812,757,214 wei. Empty string and non-hex
+/// inputs are treated as malformed and return None.
+fn parse_evm_gas_price(raw: &str) -> Option<U256> {
+    let trimmed = raw.trim_start_matches("0x");
+    if trimmed.is_empty() {
+        return None;
+    }
+    U256::from_str_radix(trimmed, 16).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_canonical_mainnet_gas_price() {
+        // Live value observed on rpc.telos.net 2026-05-04 (`eth_gasPrice` = 0x4c68cd444de).
+        let parsed = parse_evm_gas_price("4c68cd444de").expect("parses");
+        assert_eq!(parsed, U256::from(5_250_812_757_214u64));
+    }
+
+    #[test]
+    fn parses_zero_padded_nodeos_format() {
+        // Actual format returned by `/v1/chain/get_table_rows` for eosio.evm.config:
+        // a 64-char zero-padded hex string. Verified against mainnet.telos.net 2026-05-04.
+        let raw = "000000000000000000000000000000000000000000000000000004c68cd444de";
+        let parsed = parse_evm_gas_price(raw).expect("parses");
+        assert_eq!(parsed, U256::from(5_250_812_757_214u64));
+    }
+
+    #[test]
+    fn parses_with_0x_prefix() {
+        let parsed = parse_evm_gas_price("0x4c68cd444de").expect("parses");
+        assert_eq!(parsed, U256::from(5_250_812_757_214u64));
+    }
+
+    #[test]
+    fn rejects_empty() {
+        assert!(parse_evm_gas_price("").is_none());
+        assert!(parse_evm_gas_price("0x").is_none());
+    }
+
+    #[test]
+    fn rejects_non_hex() {
+        assert!(parse_evm_gas_price("zzz").is_none());
     }
 }
