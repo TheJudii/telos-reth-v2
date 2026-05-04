@@ -153,10 +153,10 @@ where
 
     for row in &statediffs_account {
         // Skip addresses created via openwallet with zero state
-        if new_addresses_using_openwallet_hashset.contains(&row.address) &&
-            row.balance == U256::ZERO &&
-            row.nonce == 0 &&
-            row.code.is_empty()
+        if new_addresses_using_openwallet_hashset.contains(&row.address)
+            && row.balance == U256::ZERO
+            && row.nonce == 0
+            && row.code.is_empty()
         {
             continue;
         }
@@ -230,8 +230,8 @@ where
     if do_storage {
         for row in &statediffs_accountstate {
             if let Ok(revm_row) = revm_db.storage(row.address, row.key) {
-                if revm_row != row.value {
-                    if revm_row != U256::ZERO && row.removed {
+                if row.removed {
+                    if revm_row != U256::ZERO {
                         maybe_panic!(
                             panic_mode,
                             "Difference in value on revm storage, removed on Telos, address: {:?}, key: {:?}",
@@ -246,23 +246,22 @@ where
                             revm_row,
                         );
                     }
-                    if !row.removed {
-                        maybe_panic!(
-                            panic_mode,
-                            "Difference in value on revm storage, address: {:?}, key: {:?}",
-                            row.address,
-                            row.key
-                        );
-                        state_override.override_storage(
-                            revm_db,
-                            row.address,
-                            row.key,
-                            row.value,
-                            revm_row,
-                        );
-                    }
+                } else if revm_row != row.value {
+                    maybe_panic!(
+                        panic_mode,
+                        "Difference in value on revm storage, address: {:?}, key: {:?}",
+                        row.address,
+                        row.key
+                    );
+                    state_override.override_storage(
+                        revm_db,
+                        row.address,
+                        row.key,
+                        row.value,
+                        revm_row,
+                    );
                 }
-            } else {
+            } else if !row.removed {
                 maybe_panic!(
                     panic_mode,
                     "Key was not found on revm storage, address: {:?}, key: {:?}",
@@ -284,4 +283,84 @@ where
 
     debug!("State diff comparison complete");
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy_primitives::address;
+    use revm::{
+        database::{CacheDB, EmptyDB},
+        state::AccountInfo,
+    };
+
+    fn state_with_storage(address: Address, key: U256, value: U256) -> State<CacheDB<EmptyDB>> {
+        let mut db = CacheDB::<EmptyDB>::default();
+        db.insert_account_info(address, AccountInfo { nonce: 1, ..AccountInfo::default() });
+        db.insert_account_storage(address, key, value).unwrap();
+        State::builder().with_database(db).with_bundle_update().build()
+    }
+
+    #[test]
+    fn removed_storage_row_clears_even_when_value_is_old_value() {
+        let address = address!("0x1000000000000000000000000000000000000000");
+        let key = U256::ZERO;
+        let old_value = U256::from(1);
+        let mut state = state_with_storage(address, key, old_value);
+
+        assert_eq!(state.storage(address, key).unwrap(), old_value);
+
+        compare_state_diffs(
+            &mut state,
+            Vec::new(),
+            vec![TelosAccountStateTableRow { removed: true, address, key, value: old_value }],
+            Vec::new(),
+            Vec::new(),
+            false,
+            true,
+        );
+
+        assert_eq!(state.storage(address, key).unwrap(), U256::ZERO);
+    }
+
+    #[test]
+    fn removed_zero_storage_row_is_noop() {
+        let address = address!("0x2000000000000000000000000000000000000000");
+        let key = U256::ZERO;
+        let mut db = CacheDB::<EmptyDB>::default();
+        db.insert_account_info(address, AccountInfo::default());
+        let mut state = State::builder().with_database(db).with_bundle_update().build();
+
+        compare_state_diffs(
+            &mut state,
+            Vec::new(),
+            vec![TelosAccountStateTableRow { removed: true, address, key, value: U256::from(1) }],
+            Vec::new(),
+            Vec::new(),
+            false,
+            true,
+        );
+
+        assert_eq!(state.storage(address, key).unwrap(), U256::ZERO);
+    }
+
+    #[test]
+    fn non_removed_storage_row_still_sets_value() {
+        let address = address!("0x3000000000000000000000000000000000000000");
+        let key = U256::ZERO;
+        let mut state = state_with_storage(address, key, U256::from(1));
+        let new_value = U256::from(7);
+
+        compare_state_diffs(
+            &mut state,
+            Vec::new(),
+            vec![TelosAccountStateTableRow { removed: false, address, key, value: new_value }],
+            Vec::new(),
+            Vec::new(),
+            false,
+            true,
+        );
+
+        assert_eq!(state.storage(address, key).unwrap(), new_value);
+    }
 }
