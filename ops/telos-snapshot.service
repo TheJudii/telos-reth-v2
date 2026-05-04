@@ -1,0 +1,18 @@
+[Unit]
+Description=Telos quick-node daily cold-copy snapshot (reth + CL DB)
+Documentation=PRE_DEPLOY_BACKUP_RUNBOOK.md and /usr/local/bin/telos-snapshot.sh
+Wants=telos-snapshot.timer
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/bin/telos-snapshot.sh
+# This is a maintenance task — failure should NOT auto-restart, so the operator
+# can investigate. systemd will mark the unit failed if exit code != 0.
+
+# hardening — but with broad RW since we touch service units, /data, /var/log
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
