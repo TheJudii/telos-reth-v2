@@ -30,7 +30,7 @@ pub struct TelosClientArgs {
 
 /// A client that forwards signed Ethereum transactions to the Telos native chain
 /// by wrapping them in an `eosio.evm::raw` action and submitting a signed Antelope
-/// transaction to `/v1/chain/send_transaction2`.
+/// transaction to `/v1/chain/push_transaction`.
 #[derive(Debug, Clone)]
 pub struct TelosClient {
     inner: Arc<TelosClientInner>,
@@ -104,7 +104,7 @@ impl TelosClient {
     /// 2. Build the action + packed transaction.
     /// 3. sha256(`chain_id` || `packed_trx` || `zero_cfa_hash`) → digest.
     /// 4. K1 canonical sign.
-    /// 5. POST to `/v1/chain/send_transaction2`.
+    /// 5. POST to `/v1/chain/push_transaction`.
     pub async fn send_to_telos(&self, tx: &[u8]) -> Result<(), EthApiError> {
         let max_retries = 6;
         let mut backoff_ms = 50u64;
@@ -184,19 +184,21 @@ impl TelosClient {
             "packed_trx": hex::encode(&packed_bytes),
         });
 
-        let url = format!("{}/v1/chain/send_transaction2", self.inner.endpoint);
-        let body = serde_json::json!({
-            "return_failure_trace": true,
-            "retry_trx": true,
-            "retry_trx_num_blocks": 2,
-            "transaction": payload,
-        });
-
-        let resp = self.inner.http_client.post(&url).json(&body).send().await?;
+        let url = format!("{}/v1/chain/push_transaction", self.inner.endpoint);
+        let resp = self.inner.http_client.post(&url).json(&payload).send().await?;
         let status = resp.status();
+        let status_code = status.as_u16();
+        let text = resp.text().await.unwrap_or_default();
         if !status.is_success() {
-            let text = resp.text().await.unwrap_or_default();
-            return Err(antelope::AntelopeError::Nodeos { status: status.as_u16(), body: text });
+            return Err(antelope::AntelopeError::Nodeos { status: status_code, body: text });
+        }
+
+        let value: serde_json::Value = serde_json::from_str(&text)?;
+        if let Some(error) = transaction_response_error(&value) {
+            return Err(antelope::AntelopeError::Nodeos {
+                status: status_code,
+                body: format!("{error}: {text}"),
+            });
         }
         Ok(())
     }
@@ -247,5 +249,73 @@ impl TelosClient {
         }
         let info: GetInfoResponse = resp.json().await?;
         Ok(info)
+    }
+}
+
+fn transaction_response_error(value: &serde_json::Value) -> Option<String> {
+    if let Some(error) = value.get("error").filter(|error| !error.is_null()) {
+        return Some(format!("nodeos response error: {error}"));
+    }
+
+    let processed = value.get("processed")?;
+    if let Some(status) = processed
+        .pointer("/receipt/status")
+        .and_then(serde_json::Value::as_str)
+        .filter(|status| *status != "executed")
+    {
+        return Some(format!("nodeos transaction status {status}"));
+    }
+
+    if let Some(exception) = processed.get("except").filter(|exception| !exception.is_null()) {
+        return Some(format!("nodeos transaction exception: {exception}"));
+    }
+
+    if let Some(exception) = processed.get("except_ptr").filter(|exception| !exception.is_null()) {
+        return Some(format!("nodeos transaction exception: {exception}"));
+    }
+
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::transaction_response_error;
+
+    #[test]
+    fn detects_failed_receipt_status() {
+        let value = serde_json::json!({
+            "transaction_id": "abc",
+            "processed": {
+                "receipt": { "status": "hard_fail" }
+            }
+        });
+
+        assert!(transaction_response_error(&value).unwrap().contains("hard_fail"));
+    }
+
+    #[test]
+    fn detects_processed_exception() {
+        let value = serde_json::json!({
+            "transaction_id": "abc",
+            "processed": {
+                "receipt": { "status": "executed" },
+                "except": { "message": "Invalid Transaction: incorrect nonce" }
+            }
+        });
+
+        assert!(transaction_response_error(&value).unwrap().contains("incorrect nonce"));
+    }
+
+    #[test]
+    fn allows_executed_receipt() {
+        let value = serde_json::json!({
+            "transaction_id": "abc",
+            "processed": {
+                "receipt": { "status": "executed" },
+                "except": null
+            }
+        });
+
+        assert!(transaction_response_error(&value).is_none());
     }
 }
