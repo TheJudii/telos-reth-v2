@@ -24,9 +24,9 @@ pub use args::TelosArgs;
 pub use chainspec::TelosChainSpecParser;
 pub use node::TelosNode;
 
-/// Default persistence threshold for engine experimental mode
-pub const DEFAULT_PERSISTENCE_THRESHOLD: u64 = 16;
-/// Default memory block buffer target
-pub const DEFAULT_MEMORY_BLOCK_BUFFER_TARGET: u64 = 16;
+/// Default persistence threshold for pre-Savannah head-tracking mode.
+pub const DEFAULT_PERSISTENCE_THRESHOLD: u64 = 20;
+/// Default memory block buffer target.
+pub const DEFAULT_MEMORY_BLOCK_BUFFER_TARGET: u64 = 30;
 /// Default maximum execute block batch size
 pub const DEFAULT_MAX_EXECUTE_BLOCK_BATCH_SIZE: usize = 50;

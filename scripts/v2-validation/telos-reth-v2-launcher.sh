@@ -14,6 +14,8 @@
 #    /data/telos-consensus-client/testnet-genesis/config.toml), which
 #    reads from nodeos state-history and pushes engine_newPayload +
 #    engine_forkchoiceUpdated into authrpc :8579.
+#  - Pre-Savannah head-tracking keeps a 20-block persistence window so
+#    reversible-fork state remains in memory instead of being flushed to MDBX.
 #  - Signer credentials are reused from v1 because reth requires them
 #    whenever --telos.telos_endpoint is set, and the signer path is
 #    only exercised by eth_sendRawTransaction, which cannot reach
@@ -104,8 +106,8 @@ exec "${BIN}" node \
   --ipcpath "${DATADIR}/reth.ipc" \
   --port 30335 --discovery.port 30335 \
   --metrics 127.0.0.1:9002 \
-  --engine.persistence-threshold 2 \
-  --engine.persistence-backpressure-threshold 16 \
+  --engine.persistence-threshold 20 \
+  --engine.persistence-backpressure-threshold 30 \
   --telos.telos_endpoint "${TELOS_ENDPOINT}" \
   --telos.signer_account "${SIGNER_ACCOUNT}" \
   --telos.signer_permission "${SIGNER_PERMISSION}" \
