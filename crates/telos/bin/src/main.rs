@@ -10,12 +10,29 @@ use reth_cli_util::allocator::tikv_jemalloc_sys as _;
 
 use clap::Parser;
 use reth::cli::Cli;
-use reth_node_telos::{TelosArgs, TelosChainSpecParser, TelosNode};
+use reth_node_core::args::DefaultEngineValues;
+use reth_node_telos::{
+    TelosArgs, TelosChainSpecParser, TelosNode, DEFAULT_MEMORY_BLOCK_BUFFER_TARGET,
+    DEFAULT_PERSISTENCE_BACKPRESSURE_THRESHOLD, DEFAULT_PERSISTENCE_THRESHOLD,
+};
 use reth_telos_rpc::TelosClient;
 use tracing::{info, warn};
 
+fn init_telos_engine_defaults() {
+    if DefaultEngineValues::default()
+        .with_persistence_threshold(DEFAULT_PERSISTENCE_THRESHOLD)
+        .with_persistence_backpressure_threshold(DEFAULT_PERSISTENCE_BACKPRESSURE_THRESHOLD)
+        .with_memory_block_buffer_target(DEFAULT_MEMORY_BLOCK_BUFFER_TARGET)
+        .try_init()
+        .is_err()
+    {
+        eprintln!("Warning: Telos engine defaults were already initialized before CLI parsing");
+    }
+}
+
 fn main() {
     reth_cli_util::sigsegv_handler::install();
+    init_telos_engine_defaults();
 
     // Enable backtraces unless a RUST_BACKTRACE value has already been explicitly provided.
     if std::env::var_os("RUST_BACKTRACE").is_none() {

@@ -26,6 +26,8 @@ pub use node::TelosNode;
 
 /// Default persistence threshold for pre-Savannah head-tracking mode.
 pub const DEFAULT_PERSISTENCE_THRESHOLD: u64 = 20;
+/// Default persistence backpressure threshold for pre-Savannah head-tracking mode.
+pub const DEFAULT_PERSISTENCE_BACKPRESSURE_THRESHOLD: u64 = 30;
 /// Default memory block buffer target.
 pub const DEFAULT_MEMORY_BLOCK_BUFFER_TARGET: u64 = 30;
 /// Default maximum execute block batch size

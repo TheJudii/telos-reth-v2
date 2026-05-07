@@ -11973,6 +11973,7 @@ dependencies = [
  "reth-cli-util",
  "reth-ethereum-cli",
  "reth-node-builder",
+ "reth-node-core",
  "reth-node-ethereum",
  "reth-node-telos",
  "reth-provider",
