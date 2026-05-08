@@ -27,6 +27,10 @@ pub struct TelosArgs {
     #[arg(long = "telos.gas_cache_seconds")]
     pub gas_cache_seconds: Option<u32>,
 
+    /// Native block retry window for forwarded EVM transactions
+    #[arg(long = "telos.tx_retry_blocks")]
+    pub tx_retry_blocks: Option<u32>,
+
     /// Maximum number of blocks to execute sequentially in a batch.
     #[arg(long = "engine.max-execute-block-batch-size", default_value_t = DEFAULT_MAX_EXECUTE_BLOCK_BATCH_SIZE)]
     pub max_execute_block_batch_size: usize,
@@ -57,6 +61,7 @@ impl Default for TelosArgs {
             signer_permission: None,
             signer_key: None,
             gas_cache_seconds: None,
+            tx_retry_blocks: None,
             max_execute_block_batch_size: DEFAULT_MAX_EXECUTE_BLOCK_BATCH_SIZE,
             block_delta: None,
             trust_consensus: true,
@@ -73,6 +78,7 @@ impl From<TelosArgs> for TelosClientArgs {
             signer_permission: args.signer_permission,
             signer_key: args.signer_key,
             gas_cache_seconds: args.gas_cache_seconds,
+            tx_retry_blocks: args.tx_retry_blocks,
         }
     }
 }

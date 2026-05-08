@@ -57,6 +57,7 @@ JWT="${DATADIR}/jwt.hex"
 # Telos native (nodeos) endpoint used by reth's signer path for
 # eth_sendRawTransaction forwarding. Block-sync does NOT use this.
 TELOS_ENDPOINT="http://127.0.0.1:18889"
+TELOS_TX_RETRY_BLOCKS="${TELOS_TX_RETRY_BLOCKS:-120}"
 
 # Signer credentials. All three fields are safe to commit: the
 # account and permission are public identifiers, and the WIF is
@@ -111,4 +112,5 @@ exec "${BIN}" node \
   --telos.telos_endpoint "${TELOS_ENDPOINT}" \
   --telos.signer_account "${SIGNER_ACCOUNT}" \
   --telos.signer_permission "${SIGNER_PERMISSION}" \
-  --telos.signer_key "${SIGNER_KEY}"
+  --telos.signer_key "${SIGNER_KEY}" \
+  --telos.tx_retry_blocks "${TELOS_TX_RETRY_BLOCKS}"

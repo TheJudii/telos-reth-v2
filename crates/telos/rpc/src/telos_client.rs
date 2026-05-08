@@ -20,6 +20,7 @@ use crate::antelope::{
 /// 8 seconds chosen because the eosio.evm config table is updated by an on-chain action
 /// at most once every few minutes; 8s gives sub-block freshness without hammering nodeos.
 const DEFAULT_GAS_CACHE_SECONDS: u32 = 8;
+const DEFAULT_TX_RETRY_BLOCKS: u32 = 120;
 
 /// `eth_maxPriorityFeePerGas` constant returned by the canonical Telos RPC.
 /// 1 gwei = 0x3b9aca00. Telos has no priority-fee market — transactions pay only
@@ -37,6 +38,9 @@ pub struct TelosClientArgs {
     /// Seconds to cache the gas-price reading from the `eosio.evm` config table.
     /// Defaults to [`DEFAULT_GAS_CACHE_SECONDS`] when unset.
     pub gas_cache_seconds: Option<u32>,
+    /// Number of native blocks nodeos should keep retrying a forwarded transaction.
+    /// Defaults to [`DEFAULT_TX_RETRY_BLOCKS`] when unset.
+    pub tx_retry_blocks: Option<u32>,
 }
 
 /// A client that forwards signed Ethereum transactions to the Telos native chain
@@ -58,6 +62,7 @@ struct TelosClientInner {
     secret_key: SecretKey,
     http_client: reqwest::Client,
     gas_cache_seconds: u32,
+    tx_retry_blocks: u32,
     gas_price_cache: Mutex<Option<(Instant, U256)>>,
 }
 
@@ -97,6 +102,7 @@ impl TelosClient {
             .signer_key
             .expect("signer_key is required for TelosClient");
         let gas_cache_seconds = args.gas_cache_seconds.unwrap_or(DEFAULT_GAS_CACHE_SECONDS);
+        let tx_retry_blocks = args.tx_retry_blocks.unwrap_or(DEFAULT_TX_RETRY_BLOCKS);
 
         let signer_actor =
             name_to_u64(&signer_account_str).expect("invalid signer_account name encoding");
@@ -123,6 +129,7 @@ impl TelosClient {
                 secret_key,
                 http_client,
                 gas_cache_seconds,
+                tx_retry_blocks,
                 gas_price_cache: Mutex::new(None),
             }),
         }
@@ -222,7 +229,7 @@ impl TelosClient {
         let body = serde_json::json!({
             "return_failure_trace": true,
             "retry_trx": true,
-            "retry_trx_num_blocks": 2,
+            "retry_trx_num_blocks": self.inner.tx_retry_blocks,
             "transaction": payload,
         });
 
