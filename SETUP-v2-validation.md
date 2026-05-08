@@ -118,18 +118,6 @@ The launcher resolves `SIGNER_KEY` in the order: `$SIGNER_KEY` env
 var, then `/etc/telos/signer.key`, then the committed public
 default.
 
-## 2c. Forwarder retry window
-
-`eth_sendRawTransaction` forwards through nodeos `send_transaction2` with
-`retry_trx = true`. Public RPC nodes should not use the old two-block retry
-window: a non-producing relay can validate a transaction locally and still miss
-producer propagation before two 0.5s blocks pass. The default is now 120 native
-blocks, and operators can override it with:
-
-```bash
-TELOS_TX_RETRY_BLOCKS=120 /usr/local/bin/telos-reth-v2
-```
-
 ## 3. Launcher, systemd unit, hash-check script
 
 The canonical copies of these three files live inside this repo under
