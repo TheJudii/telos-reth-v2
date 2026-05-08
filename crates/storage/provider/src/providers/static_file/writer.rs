@@ -727,8 +727,13 @@ impl<N: NodePrimitives> StaticFileProviderRW<N> {
         let current_block = if let Some(current_block_number) = self.current_block_number() {
             current_block_number
         } else {
-            self.increment_block(0)?;
-            0
+            let expected_start = self.writer.user_header().expected_block_start();
+            if expected_start > self.reader().genesis_block_number() {
+                expected_start - 1
+            } else {
+                self.increment_block(expected_start)?;
+                expected_start
+            }
         };
 
         match current_block.cmp(&advance_to) {
@@ -754,23 +759,28 @@ impl<N: NodePrimitives> StaticFileProviderRW<N> {
     /// and create the next one if we are past the end range.
     pub fn increment_block(&mut self, expected_block_number: BlockNumber) -> ProviderResult<()> {
         let segment = self.writer.user_header().segment();
+        let next_block_number = self.next_block_number();
 
         // Telos: under `trust_consensus` the consensus client drives block
         // insertion via the Engine API and may start mid-chain — the first
         // block from the CL can be arbitrarily far ahead of whatever we have
         // locally (typically just genesis). In that case the default
         // `check_next_block_number` path fails with `UnexpectedStaticFileBlockNumber`.
-        // Instead, commit the current file and re-seat the writer onto a
-        // fresh static file whose `expected_block_start` is the incoming
-        // block, so subsequent writes land at row 0 of the new file.
+        // If the incoming block is ahead of the writer, commit the current file
+        // and re-seat the writer onto a fresh static file whose
+        // `expected_block_start` is the incoming block, so subsequent writes
+        // land at row 0 of the new file. Never use this path to move a writer
+        // backward: startup probes and stale stage checkpoints can ask for an
+        // earlier block, and reopening an older static file would corrupt the
+        // existing static-file view.
         if reth_telos_primitives_traits::trust_consensus() &&
-            expected_block_number != self.next_block_number()
+            expected_block_number > next_block_number
         {
             tracing::warn!(
                 target: "providers::static_file",
                 ?segment,
                 expected_block_number,
-                current_next = self.next_block_number(),
+                current_next = next_block_number,
                 "Telos: trust_consensus - jumping static file writer to mid-chain block"
             );
 

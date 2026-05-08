@@ -12,8 +12,9 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, warn};
 
 use crate::antelope::{
-    self, name_to_u64, now_plus, ref_block_num, ref_block_prefix, serialize_raw_action_data,
-    sig_digest, sign_k1_canonical, wif_to_secret_key, PackedAction, PackedTransaction,
+    self, name_to_u64, now_plus, public_key_from_secret_key, ref_block_num, ref_block_prefix,
+    serialize_raw_action_data, sig_digest, sign_k1_canonical, wif_to_secret_key, PackedAction,
+    PackedTransaction,
 };
 
 /// Default gas-price cache TTL (seconds) when `--telos.gas_cache_seconds` is not set.
@@ -50,6 +51,9 @@ pub struct TelosClient {
 #[derive(Debug)]
 struct TelosClientInner {
     endpoint: String,
+    signer_account: String,
+    signer_permission_name: String,
+    signer_public_key: String,
     signer_actor: u64,
     signer_permission: u64,
     ram_payer: u64,
@@ -57,6 +61,7 @@ struct TelosClientInner {
     action_name: u64,
     secret_key: SecretKey,
     http_client: reqwest::Client,
+    signer_auth_checked: tokio::sync::OnceCell<()>,
     gas_cache_seconds: u32,
     gas_price_cache: Mutex<Option<(Instant, U256)>>,
 }
@@ -66,6 +71,28 @@ struct GetInfoResponse {
     chain_id: String,
     last_irreversible_block_num: u32,
     last_irreversible_block_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GetAccountResponse {
+    permissions: Vec<AccountPermission>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AccountPermission {
+    perm_name: String,
+    required_auth: RequiredAuth,
+}
+
+#[derive(Debug, Deserialize)]
+struct RequiredAuth {
+    keys: Vec<AccountAuthKey>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AccountAuthKey {
+    key: String,
+    weight: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -84,18 +111,12 @@ struct EvmConfigRow {
 impl TelosClient {
     /// Creates a new [`TelosClient`]. Panics on missing or malformed required args.
     pub fn new(args: TelosClientArgs) -> Self {
-        let endpoint = args
-            .telos_endpoint
-            .expect("telos_endpoint is required for TelosClient");
-        let signer_account_str = args
-            .signer_account
-            .expect("signer_account is required for TelosClient");
-        let signer_permission_str = args
-            .signer_permission
-            .expect("signer_permission is required for TelosClient");
-        let signer_key_str = args
-            .signer_key
-            .expect("signer_key is required for TelosClient");
+        let endpoint = args.telos_endpoint.expect("telos_endpoint is required for TelosClient");
+        let signer_account_str =
+            args.signer_account.expect("signer_account is required for TelosClient");
+        let signer_permission_str =
+            args.signer_permission.expect("signer_permission is required for TelosClient");
+        let signer_key_str = args.signer_key.expect("signer_key is required for TelosClient");
         let gas_cache_seconds = args.gas_cache_seconds.unwrap_or(DEFAULT_GAS_CACHE_SECONDS);
 
         let signer_actor =
@@ -106,15 +127,27 @@ impl TelosClient {
         let contract_account = ram_payer;
         let action_name = name_to_u64("raw").expect("raw name encoding");
         let secret_key = wif_to_secret_key(&signer_key_str).expect("invalid signer_key WIF");
+        let signer_public_key = public_key_from_secret_key(&secret_key);
 
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
             .expect("Failed to build HTTP client");
 
+        info!(
+            target: "telos::forward",
+            signer_account = %signer_account_str,
+            signer_permission = %signer_permission_str,
+            signer_public_key = %signer_public_key,
+            "configured Telos forwarder signer"
+        );
+
         Self {
             inner: Arc::new(TelosClientInner {
                 endpoint,
+                signer_account: signer_account_str,
+                signer_permission_name: signer_permission_str,
+                signer_public_key,
                 signer_actor,
                 signer_permission: signer_permission_u64,
                 ram_payer,
@@ -122,6 +155,7 @@ impl TelosClient {
                 action_name,
                 secret_key,
                 http_client,
+                signer_auth_checked: tokio::sync::OnceCell::new(),
                 gas_cache_seconds,
                 gas_price_cache: Mutex::new(None),
             }),
@@ -168,6 +202,7 @@ impl TelosClient {
     }
 
     async fn submit_once(&self, tx: &[u8]) -> Result<(), antelope::AntelopeError> {
+        self.verify_signer_authority().await?;
         let info = self.get_info().await?;
 
         // Parse chain_id / block_id as 32-byte digests.
@@ -224,10 +259,7 @@ impl TelosClient {
         let status_code = status.as_u16();
         let text = resp.text().await.unwrap_or_default();
         if !status.is_success() {
-            return Err(antelope::AntelopeError::Nodeos {
-                status: status_code,
-                body: text,
-            });
+            return Err(antelope::AntelopeError::Nodeos { status: status_code, body: text });
         }
         let value: serde_json::Value = serde_json::from_str(&text)?;
         if let Some(error) = transaction_response_error(&value) {
@@ -237,6 +269,45 @@ impl TelosClient {
             });
         }
         Ok(())
+    }
+
+    async fn verify_signer_authority(&self) -> Result<(), antelope::AntelopeError> {
+        self.inner
+            .signer_auth_checked
+            .get_or_try_init(|| async {
+                let url = format!("{}/v1/chain/get_account", self.inner.endpoint);
+                let payload = serde_json::json!({
+                    "account_name": self.inner.signer_account,
+                });
+
+                let resp = self.inner.http_client.post(&url).json(&payload).send().await?;
+                let status = resp.status();
+                let status_code = status.as_u16();
+                let text = resp.text().await.unwrap_or_default();
+                if !status.is_success() {
+                    return Err(antelope::AntelopeError::Nodeos {
+                        status: status_code,
+                        body: text,
+                    });
+                }
+
+                let account: GetAccountResponse = serde_json::from_str(&text)?;
+                let authorized_keys =
+                    authorized_keys_for_permission(&account, &self.inner.signer_permission_name);
+
+                if !authorized_keys.iter().any(|key| key == &self.inner.signer_public_key) {
+                    return Err(antelope::AntelopeError::SignerAuthorization {
+                        account: self.inner.signer_account.clone(),
+                        permission: self.inner.signer_permission_name.clone(),
+                        signer_public_key: self.inner.signer_public_key.clone(),
+                        authorized_keys,
+                    });
+                }
+
+                Ok(())
+            })
+            .await
+            .map(|_| ())
     }
 
     /// Build a jsonrpsee RPC module that overrides:
@@ -304,23 +375,14 @@ impl TelosClient {
                     }
                 }
             })
-            .map_err(|e| {
-                ErrorObject::owned(-32603, format!("register method: {e}"), None::<()>)
-            })?;
+            .map_err(|e| ErrorObject::owned(-32603, format!("register method: {e}"), None::<()>))?;
 
         // eth_maxPriorityFeePerGas — Telos has no priority-fee market; mirror canonical RPC.
         module
-            .register_async_method(
-                "eth_maxPriorityFeePerGas",
-                |_params, _ctx, _ext| async move {
-                    Ok::<U256, ErrorObject<'static>>(U256::from(
-                        TELOS_MAX_PRIORITY_FEE_PER_GAS_WEI,
-                    ))
-                },
-            )
-            .map_err(|e| {
-                ErrorObject::owned(-32603, format!("register method: {e}"), None::<()>)
-            })?;
+            .register_async_method("eth_maxPriorityFeePerGas", |_params, _ctx, _ext| async move {
+                Ok::<U256, ErrorObject<'static>>(U256::from(TELOS_MAX_PRIORITY_FEE_PER_GAS_WEI))
+            })
+            .map_err(|e| ErrorObject::owned(-32603, format!("register method: {e}"), None::<()>))?;
 
         Ok(module)
     }
@@ -352,10 +414,7 @@ impl TelosClient {
         let status = resp.status();
         if !status.is_success() {
             let text = resp.text().await.unwrap_or_default();
-            return Err(antelope::AntelopeError::Nodeos {
-                status: status.as_u16(),
-                body: text,
-            });
+            return Err(antelope::AntelopeError::Nodeos { status: status.as_u16(), body: text });
         }
         let parsed: GetTableRowsResponse = resp.json().await?;
         let row = parsed.rows.first().ok_or_else(|| antelope::AntelopeError::Nodeos {
@@ -363,12 +422,11 @@ impl TelosClient {
             body: "eosio.evm config table returned no rows".to_string(),
         })?;
 
-        let price = parse_evm_gas_price(&row.gas_price).ok_or_else(|| {
-            antelope::AntelopeError::Nodeos {
+        let price =
+            parse_evm_gas_price(&row.gas_price).ok_or_else(|| antelope::AntelopeError::Nodeos {
                 status: 200,
                 body: format!("malformed gas_price hex: {:?}", row.gas_price),
-            }
-        })?;
+            })?;
 
         // Update the cache. Multiple writers racing to insert the same value is fine.
         *self.inner.gas_price_cache.lock().unwrap() = Some((Instant::now(), price));
@@ -383,10 +441,7 @@ impl TelosClient {
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
-            return Err(antelope::AntelopeError::Nodeos {
-                status: status.as_u16(),
-                body,
-            });
+            return Err(antelope::AntelopeError::Nodeos { status: status.as_u16(), body });
         }
         let info: GetInfoResponse = resp.json().await?;
         Ok(info)
@@ -430,6 +485,26 @@ fn parse_evm_gas_price(raw: &str) -> Option<U256> {
         return None;
     }
     U256::from_str_radix(trimmed, 16).ok()
+}
+
+fn authorized_keys_for_permission(
+    account: &GetAccountResponse,
+    permission_name: &str,
+) -> Vec<String> {
+    account
+        .permissions
+        .iter()
+        .find(|permission| permission.perm_name == permission_name)
+        .map(|permission| {
+            permission
+                .required_auth
+                .keys
+                .iter()
+                .filter(|auth_key| auth_key.weight > 0)
+                .map(|auth_key| auth_key.key.clone())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -493,5 +568,31 @@ mod tests {
             "processed": { "receipt": { "status": "executed" } }
         });
         assert!(transaction_response_error(&value).is_none());
+    }
+
+    #[test]
+    fn extracts_positive_weight_permission_keys() {
+        let account = GetAccountResponse {
+            permissions: vec![
+                AccountPermission {
+                    perm_name: "active".to_string(),
+                    required_auth: RequiredAuth {
+                        keys: vec![AccountAuthKey { key: "EOS_ACTIVE".to_string(), weight: 1 }],
+                    },
+                },
+                AccountPermission {
+                    perm_name: "rpc".to_string(),
+                    required_auth: RequiredAuth {
+                        keys: vec![
+                            AccountAuthKey { key: "EOS_DISABLED".to_string(), weight: 0 },
+                            AccountAuthKey { key: "EOS_RPC".to_string(), weight: 1 },
+                        ],
+                    },
+                },
+            ],
+        };
+
+        assert_eq!(authorized_keys_for_permission(&account, "rpc"), vec!["EOS_RPC"]);
+        assert!(authorized_keys_for_permission(&account, "missing").is_empty());
     }
 }

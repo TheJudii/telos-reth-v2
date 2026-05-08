@@ -97,9 +97,15 @@ a shared operator credential intended to be publicly distributed
 with Telos RPC node software: its on-chain permission is linked
 only to `eosio.evm::raw`, `::call`, and `::delreciepts`, so it has
 no authority to move funds, touch mainnet, or modify its own keys.
-The launcher ships the canonical public default baked in
-(corresponds to `EOS5D53o69eaiH7GhhCiL9Hny43iNNa8hzF2ekS7hSmFMWYoBKLy6`),
-so the node works out of the box with no extra provisioning.
+The launcher still carries the historical shared default for convenience,
+but production operators must verify the configured WIF against the
+current on-chain `rpc.evm@rpc` permission before exposing
+`eth_sendRawTransaction`. The reth forwarder now derives the public key
+from the configured WIF and checks it against `/v1/chain/get_account` on
+first use, so a stale signer fails immediately instead of returning a
+transaction hash that will never land. As of May 8, 2026, mainnet
+`rpc.evm@rpc` is authorized by
+`EOS5xBSwWxWqsQP93Ps9N5JCSAjxNtwESgU3AAJgi3PEm5hYMRrCL`.
 
 To override with a different WIF (e.g. a private devnet signer, or
 a per-operator key), use either of:

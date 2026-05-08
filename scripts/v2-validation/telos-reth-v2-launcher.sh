@@ -58,11 +58,11 @@ JWT="${DATADIR}/jwt.hex"
 # eth_sendRawTransaction forwarding. Block-sync does NOT use this.
 TELOS_ENDPOINT="http://127.0.0.1:18889"
 
-# Signer credentials. All three fields are safe to commit: the
-# account and permission are public identifiers, and the WIF is
-# the shared rpc.evm@rpc forwarder key intended for public
-# distribution with Telos RPC node software (corresponds to
-# EOS5D53o69eaiH7GhhCiL9Hny43iNNa8hzF2ekS7hSmFMWYoBKLy6).
+# Signer credentials. The account and permission are public
+# identifiers. The default WIF below is the historical shared
+# rpc.evm@rpc forwarder key; production operators should verify it
+# against the current on-chain rpc.evm@rpc key or override it via
+# SIGNER_KEY / /etc/telos/signer.key.
 SIGNER_ACCOUNT="${SIGNER_ACCOUNT:-rpc.evm}"
 SIGNER_PERMISSION="${SIGNER_PERMISSION:-rpc}"
 DEFAULT_SIGNER_KEY="5HwmX44dc1optAssMvdAJZe2qvHwbkZogiu4uij2aDPmZLEcN2s"

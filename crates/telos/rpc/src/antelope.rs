@@ -10,7 +10,7 @@
 
 use alloy_primitives::B256;
 use ripemd::Ripemd160;
-use secp256k1::{ecdsa::RecoveryId, Message, Secp256k1, SecretKey};
+use secp256k1::{ecdsa::RecoveryId, Message, PublicKey, Secp256k1, SecretKey};
 use sha2::{Digest, Sha256};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -44,6 +44,20 @@ pub enum AntelopeError {
         status: u16,
         /// Raw response body returned by nodeos (typically JSON).
         body: String,
+    },
+    /// The configured signer WIF does not match the on-chain account permission.
+    #[error(
+        "signer key {signer_public_key} is not authorized for {account}@{permission}; authorized keys: {authorized_keys:?}"
+    )]
+    SignerAuthorization {
+        /// Antelope account declared in the forwarded action authorization.
+        account: String,
+        /// Antelope permission declared in the forwarded action authorization.
+        permission: String,
+        /// Public key derived from the configured signer WIF.
+        signer_public_key: String,
+        /// Public keys currently present on the account permission.
+        authorized_keys: Vec<String>,
     },
     /// The `last_irreversible_block_id` from `get_info` was not a 32-byte hex blob.
     #[error("bad block_id hex in get_info response")]
@@ -123,6 +137,23 @@ pub fn wif_to_secret_key(wif: &str) -> Result<SecretKey, AntelopeError> {
     };
     SecretKey::from_slice(priv_bytes)
         .map_err(|_| AntelopeError::InvalidWif("invalid secp256k1 key"))
+}
+
+/// Convert a secp256k1 secret key to the legacy EOS public-key format
+/// (`EOS...`) used by account permissions in Leap APIs.
+pub fn public_key_from_secret_key(sk: &SecretKey) -> String {
+    let secp = Secp256k1::signing_only();
+    let public_key = PublicKey::from_secret_key(&secp, sk);
+    let compressed = public_key.serialize();
+
+    let mut hasher = Ripemd160::new();
+    hasher.update(compressed);
+    let checksum = hasher.finalize();
+
+    let mut out = Vec::with_capacity(compressed.len() + 4);
+    out.extend_from_slice(&compressed);
+    out.extend_from_slice(&checksum[..4]);
+    format!("EOS{}", bs58::encode(out).into_string())
 }
 
 // --- K1 signature encoding ------------------------------------------------
@@ -365,8 +396,10 @@ mod tests {
         // Well-known EOSIO dev WIF
         let wif = "5KQwrPbwdL6PhXujxW37FSSQZ1JiwsST4cqQzDeyXtP79zkvFD3";
         let sk = wif_to_secret_key(wif).expect("should decode");
-        // Corresponds to public key EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV
-        // Just verify bytes length.
+        assert_eq!(
+            public_key_from_secret_key(&sk),
+            "EOS6MRyAjQq8ud7hVNYcfnVPJqcVpscN5So8BhtHuGYqET5GDW5CV"
+        );
         let bytes = sk.secret_bytes();
         assert_eq!(bytes.len(), 32);
     }

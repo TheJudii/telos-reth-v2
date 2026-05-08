@@ -156,7 +156,26 @@ where
 
     // Check if we already have the genesis header or if we have the wrong one.
     match factory.block_hash(genesis_block_number) {
-        Ok(None) | Err(ProviderError::MissingStaticFileBlock(StaticFileSegment::Headers, _)) => {}
+        Ok(None) | Err(ProviderError::MissingStaticFileBlock(StaticFileSegment::Headers, _)) => {
+            if factory.get_stage_checkpoint(StageId::Headers)?.is_some() {
+                let stored = factory.storage_settings()?.unwrap_or_else(StorageSettings::v1);
+                if stored != genesis_storage_settings {
+                    warn!(
+                        target: "reth::storage",
+                        ?stored,
+                        requested = ?genesis_storage_settings,
+                        "Storage settings mismatch detected. Using the stored settings from the existing database."
+                    );
+                }
+
+                warn!(
+                    target: "reth::storage",
+                    genesis_block_number,
+                    "Genesis header missing from static files, but database is already initialized; skipping genesis write."
+                );
+                return Ok(hash)
+            }
+        }
         Ok(Some(block_hash)) => {
             if block_hash == hash {
                 // Some users will at times attempt to re-sync from scratch by just deleting the
