@@ -59,25 +59,27 @@ JWT="${DATADIR}/jwt.hex"
 TELOS_ENDPOINT="http://127.0.0.1:18889"
 
 # Signer credentials. The account and permission are public
-# identifiers. The default WIF below is the historical shared
-# rpc.evm@rpc forwarder key; production operators should verify it
-# against the current on-chain rpc.evm@rpc key or override it via
-# SIGNER_KEY / /etc/telos/signer.key.
+# identifiers. The signer WIF must be provisioned per deployment
+# through SIGNER_KEY or /etc/telos/signer.key, then verified by
+# reth against the current on-chain rpc.evm@rpc authority before the
+# first forwarded transaction is accepted.
 SIGNER_ACCOUNT="${SIGNER_ACCOUNT:-rpc.evm}"
 SIGNER_PERMISSION="${SIGNER_PERMISSION:-rpc}"
-DEFAULT_SIGNER_KEY="5HwmX44dc1optAssMvdAJZe2qvHwbkZogiu4uij2aDPmZLEcN2s"
 
 # Resolve SIGNER_KEY. Precedence:
 #   1. $SIGNER_KEY env var (useful for ad-hoc runs / alt accounts)
 #   2. /etc/telos/signer.key (useful when an operator provisions a
-#      custom key per deployment via config management)
-#   3. The committed public default above.
+#      key via config management)
 if [ -z "${SIGNER_KEY:-}" ]; then
   if [ -r /etc/telos/signer.key ]; then
     SIGNER_KEY="$(head -n1 /etc/telos/signer.key | tr -d '[:space:]')"
   fi
 fi
-SIGNER_KEY="${SIGNER_KEY:-$DEFAULT_SIGNER_KEY}"
+if [ -z "${SIGNER_KEY:-}" ]; then
+  echo "telos-reth-v2: SIGNER_KEY is missing." >&2
+  echo "telos-reth-v2: set SIGNER_KEY or create /etc/telos/signer.key with the current rpc.evm@rpc WIF." >&2
+  exit 2
+fi
 
 mkdir -p "${DATADIR}"
 

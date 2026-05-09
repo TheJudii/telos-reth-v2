@@ -97,10 +97,11 @@ a shared operator credential intended to be publicly distributed
 with Telos RPC node software: its on-chain permission is linked
 only to `eosio.evm::raw`, `::call`, and `::delreciepts`, so it has
 no authority to move funds, touch mainnet, or modify its own keys.
-The launcher still carries the historical shared default for convenience,
-but production operators must verify the configured WIF against the
-current on-chain `rpc.evm@rpc` permission before exposing
-`eth_sendRawTransaction`. The reth forwarder now derives the public key
+Production operators must provision the current WIF explicitly via
+`SIGNER_KEY` or `/etc/telos/signer.key` before starting the launcher;
+the repo no longer carries a baked-in fallback because the historical
+shared default is no longer authorized on mainnet. The reth forwarder
+now derives the public key
 from the configured WIF and checks it against `/v1/chain/get_account` on
 first use, so a stale signer fails immediately instead of returning a
 transaction hash that will never land. As of May 8, 2026, mainnet
@@ -121,8 +122,9 @@ SIGNER_KEY='PASTE_WIF_HERE' /usr/local/bin/telos-reth-v2
 ```
 
 The launcher resolves `SIGNER_KEY` in the order: `$SIGNER_KEY` env
-var, then `/etc/telos/signer.key`, then the committed public
-default.
+var, then `/etc/telos/signer.key`. It exits at startup if neither is
+set, which is intentional for production: a node without a current
+`rpc.evm@rpc` WIF must not advertise working transaction forwarding.
 
 ## 3. Launcher, systemd unit, hash-check script
 
