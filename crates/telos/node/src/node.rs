@@ -4,7 +4,7 @@
 //! which are built on top of the standard Ethereum node components
 //! with Telos-specific extensions.
 
-use crate::{args::TelosArgs, engine::TelosEngineValidatorBuilder};
+use crate::{args::TelosArgs, engine::TelosEngineValidatorBuilder, evm::TelosExecutorBuilder};
 use alloy_rpc_types_engine::ExecutionData;
 use reth_chainspec::{ChainSpec, EthChainSpec, EthereumHardforks, Hardforks};
 use reth_engine_local::LocalPayloadAttributesBuilder;
@@ -28,8 +28,7 @@ use reth_node_builder::{
 use reth_node_ethereum::{
     node::{
         EthereumConsensusBuilder, EthereumEngineValidatorBuilder, EthereumEthApiBuilder,
-        EthereumExecutorBuilder, EthereumNetworkBuilder, EthereumPayloadBuilder,
-        EthereumPoolBuilder,
+        EthereumNetworkBuilder, EthereumPayloadBuilder, EthereumPoolBuilder,
     },
     EthereumEngineValidator,
 };
@@ -70,7 +69,7 @@ impl TelosNode {
         EthereumPoolBuilder,
         BasicPayloadServiceBuilder<EthereumPayloadBuilder>,
         EthereumNetworkBuilder,
-        EthereumExecutorBuilder,
+        TelosExecutorBuilder,
         EthereumConsensusBuilder,
     >
     where
@@ -86,7 +85,7 @@ impl TelosNode {
         ComponentsBuilder::default()
             .node_types::<N>()
             .pool(EthereumPoolBuilder::default())
-            .executor(EthereumExecutorBuilder::default())
+            .executor(TelosExecutorBuilder)
             .payload(BasicPayloadServiceBuilder::default())
             .network(EthereumNetworkBuilder::default())
             .consensus(EthereumConsensusBuilder::default())
@@ -293,7 +292,7 @@ where
         EthereumPoolBuilder,
         BasicPayloadServiceBuilder<EthereumPayloadBuilder>,
         EthereumNetworkBuilder,
-        EthereumExecutorBuilder,
+        TelosExecutorBuilder,
         EthereumConsensusBuilder,
     >;
 

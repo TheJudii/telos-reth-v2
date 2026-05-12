@@ -18,10 +18,12 @@ use revm as _;
 pub mod args;
 pub mod chainspec;
 pub mod engine;
+pub mod evm;
 pub mod node;
 
 pub use args::TelosArgs;
 pub use chainspec::TelosChainSpecParser;
+pub use evm::{TelosEvmConfig, TelosExecutorBuilder};
 pub use node::TelosNode;
 
 /// Default persistence threshold for pre-Savannah head-tracking mode.
