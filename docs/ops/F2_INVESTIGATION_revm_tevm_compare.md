@@ -64,11 +64,11 @@ Extrapolating: ~10,300/day, ~430/h, one warning every ~8s on average. Tightly cl
 if let Ok(revm_row) = revm_db.basic(row.address) {
     if let Some(unwrapped) = revm_row {
         if unwrapped.balance != row.balance {
-            warn!("Difference in balance, address: {:?} - revm: {:?} - tevm: {:?}", ...);
+            debug!("Difference in balance, address: {:?} - revm: {:?} - tevm: {:?}", ...);
             state_override.override_balance(revm_db, row.address, row.balance);
         }
         if unwrapped.nonce != row.nonce {
-            warn!("Difference in nonce, ...");
+            debug!("Difference in nonce, ...");
             state_override.override_nonce(...);
         }
         ...
@@ -145,10 +145,10 @@ To pin it down would require a focused investigation: pick one specific divergen
 
 ## 7. Recommendation
 
-**Formally accept** the warnings as expected output of the `build_state` architecture, with three operational measures:
+**Formally accept** the compare differences as expected output of the `build_state` architecture, with three operational measures:
 
 1. **Document this in `CLIENT_CONTRACT_LIB_TRACKING.md`** — add a paragraph that `debug_*` and `eth_call` results may differ from `rpc.telos.net` by small per-tx amounts. Clients needing canonical execution should use `rpc.telos.net` for those methods.
-2. **Suppress the warnings or downgrade to debug-level.** They emit at WARN today, which pollutes journals. Either gate them behind a `RUST_LOG=...compare=warn` env var explicitly, or change the level to debug. They're not actionable signals.
+2. **Suppress the warnings or downgrade to debug-level.** Implemented: the expected per-row comparison differences are emitted at DEBUG instead of WARN. They're not actionable signals.
 3. **One-time deep investigation** (~half day) to trace one divergent tx and confirm the gas/fee accounting hypothesis. If confirmed, document; if a real bug surfaces, file properly. **Not on the critical path** for production readiness.
 
 **Not recommended:** trying to make revm match Telos at the EVM-execution level. That would require porting the Telos contract's accounting into revm itself — major engineering, with no operational gain (the persisted state is already canonical via the override mechanism).
@@ -157,7 +157,7 @@ To pin it down would require a focused investigation: pick one specific divergen
 
 ## 8. Followups
 
-- [ ] Suppress / downgrade the warnings (1-line change in compare.rs, ~30 min plus build+deploy).
-- [ ] Add a paragraph to the client contract about `debug_*` and `eth_call` result variability.
+- [x] Suppress / downgrade the warnings (implemented in `compare.rs`).
+- [x] Add a paragraph to the client contract about `debug_*` and `eth_call` result variability.
 - [ ] Optional: trace one divergent tx for a concrete root cause document.
-- [ ] Add "compare warning rate" to monitoring dashboards as a tripwire — a sudden spike (10× baseline) would indicate a real divergence has appeared, distinct from the structural baseline.
+- [ ] Add "compare override rate" to monitoring dashboards as a tripwire — a sudden spike (10× baseline) would indicate a real divergence has appeared, distinct from the structural baseline.

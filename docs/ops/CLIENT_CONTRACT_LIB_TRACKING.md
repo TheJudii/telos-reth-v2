@@ -91,6 +91,15 @@ Until Savanna activation is complete, the contract in §3–§5 holds.
 
 Mixed-mode applications can use both: send transactions and read pending state via v1 prod, read finalized state and historical queries via v2 quick.
 
+Methods that execute new EVM work locally deserve special treatment. In
+`trust_consensus + build_state` mode, persisted balances, nonces, code, storage,
+receipts, and block hashes are built from Telos native EVM state diffs. Calls
+such as `eth_call` and `debug_trace*` still execute through revm, so simulation
+and trace internals can differ from `rpc.telos.net` in edge cases where Telos
+native gas/fee accounting diverges from Ethereum-standard revm behavior. Clients
+that require canonical simulation semantics should route those methods to
+`rpc.telos.net`.
+
 ---
 
 ## 8. Why the design is this way (briefly)

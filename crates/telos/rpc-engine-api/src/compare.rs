@@ -10,7 +10,7 @@ use revm::{
     Database, DatabaseCommit,
 };
 use sha2::{Digest, Sha256};
-use tracing::{debug, warn};
+use tracing::debug;
 
 use crate::structs::{TelosAccountStateTableRow, TelosAccountTableRow};
 
@@ -121,15 +121,15 @@ macro_rules! maybe_panic {
         if $panic_mode {
             panic!($($arg)*);
         } else {
-            warn!($($arg)*);
+            debug!($($arg)*);
         }
     };
 }
 
 /// Compare state diffs between revm execution and Telos EVM contract state.
 ///
-/// This function validates that the execution results from revm match what the
-/// Telos native EVM contract reports. Any discrepancies are logged (or panicked
+/// This function validates that the local revm state matches what the Telos
+/// native EVM contract reports. Any discrepancies are debug-logged (or panicked
 /// in strict mode) and overridden to match the Telos state.
 pub fn compare_state_diffs<DB>(
     revm_db: &mut State<DB>,
