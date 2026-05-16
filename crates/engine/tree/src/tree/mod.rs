@@ -850,6 +850,34 @@ where
         }
     }
 
+    /// Detects the narrow Telos recovery case where consensus replaces the current head with a
+    /// same-height sibling that has the same parent.
+    fn trust_consensus_same_height_reorg(
+        &self,
+        new_head_block: &ExecutedBlock<N>,
+    ) -> ProviderResult<Option<NewCanonicalChain<N>>> {
+        let current_head = self.state.tree_state.current_canonical_head;
+        let new_block = new_head_block.recovered_block();
+
+        if new_block.hash() == current_head.hash || new_block.number() != current_head.number {
+            return Ok(None)
+        }
+
+        let Some(current_header) = self.sealed_header_by_hash(current_head.hash)? else {
+            return Ok(None)
+        };
+
+        if current_header.parent_hash() != new_block.parent_hash() {
+            return Ok(None)
+        }
+
+        let old_head_block = self.canonical_block_by_hash(current_head.hash)?;
+        Ok(Some(NewCanonicalChain::Reorg {
+            new: vec![new_head_block.clone()],
+            old: vec![old_head_block],
+        }))
+    }
+
     /// Returns the new chain for the given head.
     ///
     /// This also handles reorgs.
@@ -870,7 +898,12 @@ where
         // we never persisted the long prefix of prior EVM history). Treat every
         // accepted new head as a direct single-block commit extension so that
         // `make_canonical` can advance the canonical head one block at a time.
+        // Same-height siblings with the same parent are still real reorgs; preserving
+        // that distinction lets persistence replace the canonical number mapping.
         if reth_telos_primitives_traits::trust_consensus() {
+            if let Some(reorg) = self.trust_consensus_same_height_reorg(new_head_block)? {
+                return Ok(Some(reorg))
+            }
             return Ok(Some(NewCanonicalChain::Commit { new: vec![new_head_block.clone()] }))
         }
 
@@ -2579,15 +2612,87 @@ where
         None
     }
 
+    /// Detects a persisted canonical-chain mismatch while Telos is trusting consensus.
+    ///
+    /// Telos can start from a mid-chain checkpoint, so the normal ancestor walk is too strict when
+    /// it has to cross history that is not in the local database. This only walks the in-memory
+    /// canonical chain back to the persisted height, then looks for a common parent from there.
+    fn find_trust_consensus_disk_reorg(&self) -> ProviderResult<Option<u64>> {
+        let mut canonical = self.state.tree_state.current_canonical_head;
+        let mut persisted = self.persistence_state.last_persisted_block;
+
+        if canonical.number < persisted.number {
+            debug!(
+                target: "engine::tree",
+                ?canonical,
+                ?persisted,
+                "Telos trust_consensus disk reorg check skipped because canonical head is behind persisted head"
+            );
+            return Ok(None)
+        }
+
+        let parent_num_hash = |num_hash: NumHash| -> ProviderResult<Option<NumHash>> {
+            Ok(self.sealed_header_by_hash(num_hash.hash)?.map(|header| header.parent_num_hash()))
+        };
+
+        while canonical.number > persisted.number {
+            let Some(parent) = parent_num_hash(canonical)? else {
+                debug!(
+                    target: "engine::tree",
+                    ?canonical,
+                    "Telos trust_consensus disk reorg check deferred: missing canonical parent"
+                );
+                return Ok(None)
+            };
+            canonical = parent;
+        }
+
+        if canonical == persisted {
+            return Ok(None)
+        }
+
+        while persisted.hash != canonical.hash {
+            let Some(canonical_parent) = parent_num_hash(canonical)? else {
+                debug!(
+                    target: "engine::tree",
+                    ?canonical,
+                    ?persisted,
+                    "Telos trust_consensus disk reorg check deferred: missing canonical ancestor"
+                );
+                return Ok(None)
+            };
+            let Some(persisted_parent) = parent_num_hash(persisted)? else {
+                debug!(
+                    target: "engine::tree",
+                    ?canonical,
+                    ?persisted,
+                    "Telos trust_consensus disk reorg check deferred: missing persisted ancestor"
+                );
+                return Ok(None)
+            };
+
+            canonical = canonical_parent;
+            persisted = persisted_parent;
+        }
+
+        debug!(
+            target: "engine::tree",
+            remove_above = persisted.number,
+            "Telos trust_consensus on-disk reorg detected"
+        );
+
+        Ok(Some(persisted.number))
+    }
+
     /// This method tries to detect whether on-disk and in-memory states have diverged. It might
     /// happen if a reorg is happening while we are persisting a block.
     fn find_disk_reorg(&self) -> ProviderResult<Option<u64>> {
         // Under trust_consensus, the CL is the source of truth for the canonical chain.
         // We may be starting mid-chain where the historical parent hashes are not in our
         // Headers table, which makes the ancestor walk below fail with BlockHashNotFound.
-        // Disk reorg detection is meaningless in that mode, so just skip it.
+        // Use a bounded check that can repair same-height siblings without requiring full history.
         if reth_telos_primitives_traits::trust_consensus() {
-            return Ok(None);
+            return self.find_trust_consensus_disk_reorg()
         }
 
         let mut canonical = self.state.tree_state.current_canonical_head;
